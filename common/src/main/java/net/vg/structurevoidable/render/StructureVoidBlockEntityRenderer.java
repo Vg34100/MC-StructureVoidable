@@ -111,7 +111,7 @@ public class StructureVoidBlockEntityRenderer implements BlockEntityRenderer<Str
 
         blockModelResolver.update(blockModelRenderState, blockState, DISPLAY_CONTEXT);
         poseStack.pushPose();
-        blockModelRenderState.submit(poseStack, nodeCollector, state.lightCoords, OverlayTexture.NO_OVERLAY, 0xFFFFFF);
+        blockModelRenderState.submit(poseStack, nodeCollector, state.lightCoords, OverlayTexture.NO_OVERLAY, -1);
         poseStack.popPose();
         blockModelRenderState.clear();
     }
