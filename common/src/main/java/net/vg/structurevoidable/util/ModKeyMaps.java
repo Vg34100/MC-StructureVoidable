@@ -12,24 +12,24 @@ import java.util.List;
 
 public class ModKeyMaps {
     public static final KeyMapping CUSTOM_KEYMAPPING = new KeyMapping(
-            "key.toggle_outline_visible", // The translation key of the name shown in the Controls screen
-            InputConstants.Type.KEYSYM, // This key mapping is for Keyboards by default
-            InputConstants.KEY_INSERT, // The default keycode
-            "category.structurevoidable" // The category translation key used to categorize in the Controls screen
+            "key.toggle_outline_visible",
+            InputConstants.Type.KEYSYM,
+            InputConstants.KEY_INSERT,
+            KeyMapping.Category.MISC
     );
 
     public static final KeyMapping CYCLE_OUTLINE_SIZE_KEYMAPPING = new KeyMapping(
-            "key.cycle_outline_size", // The translation key for the new key mapping
+            "key.cycle_outline_size",
             InputConstants.Type.KEYSYM,
-            InputConstants.KEY_I, // The default key for cycling outline sizes
-            "category.structurevoidable" // Same category as the other key mapping
+            InputConstants.KEY_I,
+            KeyMapping.Category.MISC
     );
 
     public static final KeyMapping CYCLE_BLOCK_TYPE_KEYMAPPING = new KeyMapping(
-            "key.cycle_block_type", // The translation key for the new key mapping
+            "key.cycle_block_type",
             InputConstants.Type.KEYSYM,
-            InputConstants.KEY_O, // The default key for cycling outline sizes
-            "category.structurevoidable" // Same category as the other key mapping
+            InputConstants.KEY_O,
+            KeyMapping.Category.MISC
     );
 
     private static final List<String> OUTLINE_SIZES = Arrays.asList("none", "small", "medium", "large");
