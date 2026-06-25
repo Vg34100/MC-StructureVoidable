@@ -1,12 +1,10 @@
 package net.vg.structurevoidable.neoforge;
 
 import net.minecraft.client.gui.screens.Screen;
-import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.ModLoadingContext;
 import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
-import net.neoforged.fml.loading.FMLEnvironment;
 import net.neoforged.neoforge.client.gui.IConfigScreenFactory;
 import net.vg.structurevoidable.StructureVoidableClient;
 import net.vg.structurevoidable.Structurevoidable;
@@ -19,9 +17,7 @@ public final class StructurevoidableNeoForge {
         // Run our common setup.
         Structurevoidable.init();
 
-        if (FMLEnvironment.dist == Dist.CLIENT) {
-            modEventBus.addListener(this::clientSetup);
-        }
+        modEventBus.addListener(this::clientSetup);
 
         ModLoadingContext.get().registerExtensionPoint(IConfigScreenFactory.class, () -> new IConfigScreenFactory() {
             @Override
