@@ -93,7 +93,7 @@ Current root shape:
 plugins {
     id 'dev.architectury.loom-no-remap' version '1.17-SNAPSHOT' apply false
     id 'architectury-plugin' version '3.5-SNAPSHOT'
-    id 'com.github.johnrengelman.shadow' version '8.1.1' apply false
+    id 'com.gradleup.shadow' version '9.0.0-beta12' apply false
 }
 
 subprojects {
@@ -263,3 +263,262 @@ This is still the right way to answer:
 ## Repo Note
 
 If IntelliJ run configurations still point at the old repo folder name, regenerate or fix them separately after the toolchain migration. That is a run-config issue, not the main `26.1.2` build migration.
+
+## Shadow Plugin Compatibility
+
+**Critical**: Shadow 8.x is incompatible with Gradle 9.x. You will get errors like:
+
+```
+groovy.lang.MissingPropertyException: No such property: mode for class: org.gradle.api.internal.file.copy.NormalizingCopyActionDecorator$StubbedFileCopyDetails
+```
+
+The fix is to migrate from `com.github.johnrengelman.shadow` to `com.gradleup.shadow`:
+
+In root `build.gradle`:
+```gradle
+id 'com.gradleup.shadow' version '9.0.0-beta12' apply false
+```
+
+In `fabric/build.gradle` and `neoforge/build.gradle`:
+```gradle
+plugins {
+    id 'com.gradleup.shadow'
+}
+```
+
+## Build Output and Distribution
+
+The Architectury + Shadow setup produces two jar types:
+
+| Jar | Contents | Use |
+|-----|----------|-----|
+| `sagittary-fabric-X.X.X-raw.jar` | Platform module only, missing common | Do not distribute |
+| `sagittary-fabric-X.X.X.jar` | Full mod with common bundled | Distribute this one |
+
+To build the distributable jars, run `shadowJar`:
+
+```bash
+gradlew :fabric:shadowJar :neoforge:shadowJar
+```
+
+Or in IntelliJ: `sagittary/Tasks/shadow/shadowJar`
+
+The final jars will be in:
+- `fabric/build/libs/sagittary-fabric-X.X.X.jar`
+- `neoforge/build/libs/sagittary-neoforge-X.X.X.jar`
+
+## JEI Integration (MC 26.1.2 / JEI 29.x)
+
+JEI plugin registration changed. You need both:
+
+1. **Fabric entrypoint** in `fabric.mod.json`:
+```json
+"entrypoints": {
+    "jei_mod_plugin": [
+        "net.vg.sagittary.compat.jei.SagittaryJeiPlugin"
+    ]
+}
+```
+
+2. **Service file** at `common/src/main/resources/META-INF/services/mezz.jei.api.IModPlugin`:
+```
+net.vg.sagittary.compat.jei.SagittaryJeiPlugin
+```
+
+### JEI API Changes
+
+- `IRecipeCategory` now uses `getWidth()` and `getHeight()` instead of `getBackground()`
+- Direct text rendering in categories is unreliable; use tooltips via `addRichTooltipCallback()` or `addIngredientInfo()` instead
+- `GuiGraphics` is now `GuiGraphicsExtractor` in this MC version
+
+## NeoForge-Specific Gotchas
+
+### Creative Tabs
+
+`CreativeTabRegistry.modify()` crashes on NeoForge with empty/new tabs. Use the builder pattern instead:
+
+```java
+// DON'T do this on NeoForge:
+CreativeTabRegistry.modify(TAB, (flags, output, canUseGameMasterBlocks) -> {
+    output.accept(new ItemStack(MY_ITEM.get()));
+});
+
+// DO this instead:
+CreativeTabRegistry.create(builder -> builder
+    .title(Component.translatable("itemGroup.mymod"))
+    .icon(() -> new ItemStack(MY_ITEM.get()))
+    .displayItems((parameters, output) -> {
+        output.accept(new ItemStack(MY_ITEM.get()));
+    })
+);
+```
+
+### Custom Tooltip Components
+
+Custom `TooltipComponent` classes need explicit registration on NeoForge via event:
+
+```java
+// In your NeoForge mod class:
+modEventBus.addListener(this::registerTooltipComponents);
+
+private void registerTooltipComponents(RegisterClientTooltipComponentFactoriesEvent event) {
+    event.register(MyTooltip.class, MyTooltipRenderer::new);
+}
+```
+
+Architectury's `ClientTooltipComponentRegistry.register()` handles Fabric automatically but NeoForge needs the event.
+
+### Platform-Specific Mixins
+
+Some client mixins may fail on NeoForge due to different method signatures between Fabric (intermediary) and NeoForge (Mojmap) mappings. If a mixin works on Fabric but crashes NeoForge with "failed injection check, (0/1) succeeded", move it to a platform-specific mixin config:
+
+1. Create `fabric/src/main/resources/mymod-fabric.mixins.json`
+2. Add it to `fabric.mod.json` mixins array
+3. Remove the problematic mixin from the common config
+
+## Architectury Project Structure Notes
+
+Common module resources (like `sagittary.mixins.json`) are bundled into platform jars via `shadowJar`, not the regular `jar` task. If you see "mixin config not found" errors, you're using the wrong jar file.
+
+## MC 26.1.2 Code-Level API Changes
+
+These are the actual code breakages encountered when migrating this mod. The build section above must be working before tackling these.
+
+### ModMenu Version
+
+ModMenu 14.x uses Fabric intermediary names (`class_437` for `Screen`) which clash with Mojang names in `loom-no-remap`. Use ModMenu 18.x for MC 26.1.2:
+
+```properties
+modmenu_version=18.0.0-beta.1
+```
+
+### fabric.mod.json Version Constraint
+
+The old constraint `~1.21.5` will not match `26.1.2`. Fabric loader will refuse to load the mod silently. Change to an exact match:
+
+```json
+"depends": {
+  "minecraft": "26.1.2",
+  "java": ">=25",
+  "architectury": ">=20.0.0"
+}
+```
+
+### FMLEnvironment.dist (NeoForge)
+
+`FMLEnvironment.dist` exists in FancyModLoader at runtime but is **not on the NeoForge compile classpath** in the 26.1.2 Loom setup. Any reference to it will fail with `variable dist not found`.
+
+The fix is to remove the dist check entirely. `FMLClientSetupEvent` only fires on the client, so the listener is safe to register unconditionally:
+
+```java
+// BEFORE (broken):
+if (FMLEnvironment.dist == Dist.CLIENT) {
+    modEventBus.addListener(this::clientSetup);
+}
+
+// AFTER (correct):
+modEventBus.addListener(this::clientSetup);
+```
+
+### BlockEntityRenderer: New Two-Type Interface
+
+`BlockEntityRenderer` is now `BlockEntityRenderer<T extends BlockEntity, S extends BlockEntityRenderState>`. The old single `render()` method is replaced by three methods:
+
+```java
+public class MyBER implements BlockEntityRenderer<MyBlockEntity, MyBER.RenderState> {
+
+    public static class RenderState extends BlockEntityRenderState {
+        // snapshot fields — no live game references
+    }
+
+    @Override public RenderState createRenderState() { return new RenderState(); }
+
+    @Override
+    public void extractRenderState(MyBlockEntity be, RenderState state, float partialTick,
+                                   Vec3 cameraPos, ModelFeatureRenderer.CrumblingOverlay overlay) {
+        BlockEntityRenderState.extractBase(be, state, overlay);
+        // read from 'be' and write to 'state' — this runs on the game thread
+    }
+
+    @Override
+    public void submit(RenderState state, PoseStack poseStack,
+                       SubmitNodeCollector nodeCollector, CameraRenderState cameraRenderState) {
+        // render using only 'state' — this runs on the render thread
+    }
+}
+```
+
+Key design rule: `extractRenderState` touches live game state; `submit` must only use the snapshot in `RenderState`. Do not pass live `Level` or `BlockEntity` references into the render state.
+
+### Rendering World Blocks from a BER: Use submitMovingBlock
+
+`BlockModelRenderState.submit()` / `submitWithZOffset()` are for **item and entity model rendering** (held items, item frames, dropped items). They use the wrong render pass for world blocks and will produce white/untextured results.
+
+To render an actual block with correct textures, lighting, and AO from inside a BER `submit()`, use `submitMovingBlock`:
+
+```java
+// In extractRenderState — grab lighting context from ClientLevel:
+if (be.getLevel() instanceof ClientLevel clientLevel) {
+    state.biome = clientLevel.getBiome(be.getBlockPos());
+    state.cardinalLighting = clientLevel.cardinalLighting();
+    state.lightEngine = clientLevel.getLightEngine();
+}
+
+// In submit — create a MovingBlockRenderState and call submitMovingBlock:
+MovingBlockRenderState movingState = new MovingBlockRenderState();
+movingState.blockState = Blocks.STONE.defaultBlockState();
+movingState.blockPos = targetPos;
+movingState.randomSeedPos = targetPos;
+movingState.biome = state.biome;
+movingState.cardinalLighting = state.cardinalLighting;
+movingState.lightEngine = state.lightEngine;
+
+poseStack.pushPose();
+poseStack.translate(dx, dy, dz); // relative to block entity position
+nodeCollector.submitMovingBlock(poseStack, movingState);
+poseStack.popPose();
+```
+
+`MovingBlockRenderState` carries the world lighting context that the block renderer needs. This is the same pattern `PistonHeadRenderer` uses for piston blocks.
+
+### Z-Fighting: One Render Per Block Entity Position
+
+Each structure void block has its own `BlockEntity`. If your BER scans a range (e.g. a 2×2×2 area) and adjacent block entities have overlapping scan areas, you will get Z-fighting — diagonal lines and camera-dependent flickering where two block entities both try to render a solid block at the same position.
+
+Fix: each block entity should render **only its own position**, not a scan range:
+
+```java
+// WRONG — causes overlap between adjacent block entities:
+for (BlockPos pos : BlockPos.betweenClosed(blockPos, blockPos.offset(1, 1, 1))) { ... }
+
+// CORRECT — each entity owns only its own position:
+if (level.getBlockState(blockPos).is(Blocks.STRUCTURE_VOID)) {
+    state.structureVoidPositions.add(blockPos.immutable());
+}
+```
+
+### Gizmos: World-Space Outline Rendering
+
+`ShapeRenderer.renderLineBox()` is gone. Use the Gizmos system for debug/outline shapes:
+
+```java
+import net.minecraft.gizmos.Gizmos;
+import net.minecraft.gizmos.GizmoStyle;
+
+GizmoStyle style = GizmoStyle.stroke(color); // ARGB int, alpha must be 0xFF
+Gizmos.cuboid(new AABB(pos), style);         // world-space coordinates
+```
+
+Call `Gizmos.cuboid()` directly from `submit()` — no push/pop needed, Gizmos handles world-space positioning internally.
+
+### KeyMapping Category
+
+`KeyMapping` category changed from `String` to `KeyMapping.Category`:
+
+```java
+// BEFORE:
+new KeyMapping("key.mymod.action", InputConstants.Type.KEYSYM, InputConstants.KEY_F, "key.categories.misc")
+
+// AFTER:
+new KeyMapping("key.mymod.action", InputConstants.Type.KEYSYM, InputConstants.KEY_F, KeyMapping.Category.MISC)
+```
