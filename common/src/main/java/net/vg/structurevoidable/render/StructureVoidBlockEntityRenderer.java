@@ -110,9 +110,16 @@ public class StructureVoidBlockEntityRenderer implements BlockEntityRenderer<Str
         };
 
         blockModelResolver.update(blockModelRenderState, blockState, DISPLAY_CONTEXT);
-        poseStack.pushPose();
-        blockModelRenderState.submit(poseStack, nodeCollector, state.lightCoords, OverlayTexture.NO_OVERLAY, -1);
-        poseStack.popPose();
+        for (BlockPos pos : state.structureVoidPositions) {
+            poseStack.pushPose();
+            poseStack.translate(
+                pos.getX() - state.blockPos.getX(),
+                pos.getY() - state.blockPos.getY(),
+                pos.getZ() - state.blockPos.getZ()
+            );
+            blockModelRenderState.submitWithZOffset(poseStack, nodeCollector, state.lightCoords, OverlayTexture.NO_OVERLAY, -1);
+            poseStack.popPose();
+        }
         blockModelRenderState.clear();
     }
 
