@@ -1,25 +1,25 @@
 package net.vg.structurevoidable.render;
 
 import com.mojang.blaze3d.vertex.PoseStack;
+import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.SubmitNodeCollector;
-import net.minecraft.client.renderer.block.BlockModelRenderState;
-import net.minecraft.client.renderer.block.BlockModelResolver;
-import net.minecraft.client.renderer.block.model.BlockDisplayContext;
+import net.minecraft.client.renderer.block.MovingBlockRenderState;
 import net.minecraft.client.renderer.blockentity.BlockEntityRenderer;
 import net.minecraft.client.renderer.blockentity.BlockEntityRendererProvider;
 import net.minecraft.client.renderer.blockentity.state.BlockEntityRenderState;
 import net.minecraft.client.renderer.feature.ModelFeatureRenderer;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
-import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Holder;
 import net.minecraft.gizmos.GizmoStyle;
 import net.minecraft.gizmos.Gizmos;
-import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.CardinalLighting;
+import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.lighting.LevelLightEngine;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
-import net.vg.structurevoidable.Constants;
 import net.vg.structurevoidable.block.entity.StructureVoidBlockEntity;
 import net.vg.structurevoidable.config.ModConfigs;
 
@@ -35,15 +35,12 @@ public class StructureVoidBlockEntityRenderer implements BlockEntityRenderer<Str
         public String outlineColor;
         public String blockType;
         public final List<BlockPos> structureVoidPositions = new ArrayList<>();
+        public Holder<Biome> biome;
+        public CardinalLighting cardinalLighting;
+        public LevelLightEngine lightEngine;
     }
 
-    private final BlockModelResolver blockModelResolver;
-    private final BlockModelRenderState blockModelRenderState = new BlockModelRenderState();
-    private static final BlockDisplayContext DISPLAY_CONTEXT = BlockDisplayContext.create();
-
     public StructureVoidBlockEntityRenderer(BlockEntityRendererProvider.Context context) {
-        this.blockModelResolver = context.blockModelResolver();
-        Constants.LOGGER.debug("StructureVoidBlockEntityRenderer initialized.");
     }
 
     @Override
@@ -60,14 +57,17 @@ public class StructureVoidBlockEntityRenderer implements BlockEntityRenderer<Str
         state.outlineColor = ModConfigs.OUTLINE_COLOR;
         state.blockType = ModConfigs.BLOCK_TYPE;
         state.structureVoidPositions.clear();
+        state.biome = null;
+        state.cardinalLighting = null;
+        state.lightEngine = null;
 
-        BlockGetter level = be.getLevel();
-        if (level != null) {
+        if (be.getLevel() instanceof ClientLevel clientLevel) {
             BlockPos blockPos = be.getBlockPos();
-            for (BlockPos pos : BlockPos.betweenClosed(blockPos, blockPos.offset(1, 1, 1))) {
-                if (level.getBlockState(pos).is(Blocks.STRUCTURE_VOID)) {
-                    state.structureVoidPositions.add(pos.immutable());
-                }
+            state.biome = clientLevel.getBiome(blockPos);
+            state.cardinalLighting = clientLevel.cardinalLighting();
+            state.lightEngine = clientLevel.getLightEngine();
+            if (clientLevel.getBlockState(blockPos).is(Blocks.STRUCTURE_VOID)) {
+                state.structureVoidPositions.add(blockPos.immutable());
             }
         }
     }
@@ -78,8 +78,6 @@ public class StructureVoidBlockEntityRenderer implements BlockEntityRenderer<Str
 
         double distSq = state.blockPos.distToCenterSqr(cameraRenderState.pos.x, cameraRenderState.pos.y, cameraRenderState.pos.z);
         if (distSq > 128.0) return;
-
-        Constants.LOGGER.debug("Rendering StructureVoidBlockEntity at position: {}", state.blockPos);
 
         if (!state.displayBlock) {
             renderOutlines(state);
@@ -101,6 +99,8 @@ public class StructureVoidBlockEntityRenderer implements BlockEntityRenderer<Str
     }
 
     private void renderDisplayBlock(RenderState state, PoseStack poseStack, SubmitNodeCollector nodeCollector) {
+        if (state.cardinalLighting == null || state.lightEngine == null || state.biome == null) return;
+
         BlockState blockState = switch (state.blockType) {
             case "deepslate" -> Blocks.DEEPSLATE.defaultBlockState();
             case "dirt" -> Blocks.DIRT.defaultBlockState();
@@ -109,18 +109,25 @@ public class StructureVoidBlockEntityRenderer implements BlockEntityRenderer<Str
             default -> Blocks.STONE.defaultBlockState();
         };
 
-        blockModelResolver.update(blockModelRenderState, blockState, DISPLAY_CONTEXT);
+        MovingBlockRenderState movingState = new MovingBlockRenderState();
+        movingState.blockState = blockState;
+        movingState.biome = state.biome;
+        movingState.cardinalLighting = state.cardinalLighting;
+        movingState.lightEngine = state.lightEngine;
+
         for (BlockPos pos : state.structureVoidPositions) {
+            movingState.blockPos = pos;
+            movingState.randomSeedPos = pos;
+
             poseStack.pushPose();
             poseStack.translate(
                 pos.getX() - state.blockPos.getX(),
                 pos.getY() - state.blockPos.getY(),
                 pos.getZ() - state.blockPos.getZ()
             );
-            blockModelRenderState.submitWithZOffset(poseStack, nodeCollector, state.lightCoords, OverlayTexture.NO_OVERLAY, -1);
+            nodeCollector.submitMovingBlock(poseStack, movingState);
             poseStack.popPose();
         }
-        blockModelRenderState.clear();
     }
 
     private static int getColor(String outlineColor) {

@@ -20,6 +20,22 @@ Use it as the first file to load before exploring the tree.
 - Reuse known build/test commands instead of re-deriving them each turn.
 - Summarize findings instead of repeating raw command output back to the user.
 
+### Build Output Context Waste (CRITICAL)
+
+**The #1 source of context waste is verbose build/compiler output.**
+
+Common mistakes that waste context:
+- Running `./gradlew build 2>&1 | tail -200` (grabs too much)
+- Not filtering compiler error output (same error repeated 3x)
+- Full stack traces for simple "symbol not found" errors
+- Gradle boilerplate warnings about deprecated features
+
+**Solutions:**
+1. Use `build-smart.py` (see Compile/Test Workflow section)
+2. If raw gradle is needed, filter aggressively: `| grep -E "(error:|BUILD)" | head -20`
+3. Fix multiple related errors before rebuilding (don't fix-rebuild-fix-rebuild)
+4. Read error messages carefully - often one fix resolves many errors
+
 ## Fast Search Workflow
 
 ### Find files
@@ -122,6 +138,37 @@ PY
 ```
 
 In practice, narrow the glob to the exact dependency first.
+
+### Bytecode inspection when no source exists
+
+For MC 26.1.2 with `loom-no-remap`, source jars may be absent or incomplete. When you need to understand an undocumented API (especially new rendering internals), read the bytecode directly:
+
+```python
+python3 - <<'PY'
+import subprocess, zipfile
+
+jar = "/mnt/c/Users/video/.gradle/caches/fabric-loom/26.1.2/minecraft-merged.jar"
+
+# List members of a class
+result = subprocess.run(
+    ["javap", "-p", "-classpath", jar, "net.minecraft.client.renderer.SubmitNodeCollector"],
+    capture_output=True, text=True
+)
+print(result.stdout)
+
+# Show bytecode for one class (shows all method bodies + constant pool references)
+result2 = subprocess.run(
+    ["javap", "-c", "-p", "-classpath", jar,
+     "net.minecraft.client.renderer.block.BlockModelRenderState"],
+    capture_output=True, text=True
+)
+print(result2.stdout[:3000])
+PY
+```
+
+The constant pool `//` comments in `-c` output reveal what methods and fields each method actually calls — invaluable for tracing call chains through new rendering APIs with no docs. Use `-verbose` for the full constant pool up front if you need to trace across multiple classes.
+
+This technique is what revealed that `BlockModelRenderState.submitWithZOffset()` calls `SubmitNodeCollector.submitBlockModel()` (correct path), while the actual issue was that the item/entity render pass doesn't apply world lighting — requiring `submitMovingBlock` instead.
 
 ### Good lookup targets by task
 
@@ -234,6 +281,68 @@ If automation is later added, it should push repo docs into the GitHub wiki repo
 
 ## Compile/Test Workflow
 
+### CRITICAL: Use the Smart Build Script
+
+**ALWAYS use `build-smart.py` instead of raw Gradle commands.**
+
+Raw Gradle output is extremely verbose (100-200+ lines per failed build) and wastes massive amounts of context. The smart build script parses errors and shows only essential information.
+
+```bash
+# On Windows (cmd.exe) - PREFERRED for this repo
+cmd.exe /c "python build-smart.py"
+
+# Available commands:
+python build-smart.py              # compile only (default, fast)
+python build-smart.py compile      # same as above
+python build-smart.py compile:fabric    # compile common + fabric only
+python build-smart.py compile:neoforge  # compile common + neoforge only
+python build-smart.py build        # full build with jars
+python build-smart.py shadowJar    # distribution jars
+python build-smart.py release      # alias for shadowJar
+python build-smart.py clean        # clean build dirs
+```
+
+**Default is `compile`** - fast compileJava only, no jar packaging. Use this during development.
+
+**Example output comparison:**
+
+Raw Gradle (BAD - 150+ lines):
+```
+A:\Projects\...\BoneShaftEffect.java:26: error: cannot find symbol
+        return entity instanceof Zombie || entity instanceof Skeleton ||
+                                 ^
+  symbol:   class Zombie
+  location: class BoneShaftEffect
+... (100 more lines of repeated errors and gradle boilerplate)
+```
+
+Smart Build (GOOD - ~10 lines):
+```
+Running: gradlew.bat :common:compileJava :fabric:compileJava :neoforge:compileJava --no-daemon
+------------------------------------------------------------
+============================================================
+BUILD FAILED
+============================================================
+
+Errors found:
+------------------------------------------------------------
+BoneShaftEffect.java:26: error: cannot find symbol
+    symbol:   class Zombie
+------------------------------------------------------------
+Fix errors and rebuild
+```
+
+### Windows vs WSL
+
+For this repo specifically, **use cmd.exe** because the gradle.properties has Windows-style Java paths.
+
+```bash
+# Preferred for this repo
+cmd.exe /c "cd /d A:\Projects\The Experiment Lab\Minecraft\sagittary && python build-smart.py"
+```
+
+### WSL Mirror Build (for pure WSL projects)
+
 For WSL-on-Windows or mixed-filesystem setups, prefer a mirror build to avoid path, lock, and Gradle cache issues.
 
 ### Reusable mirror compile loop
@@ -314,31 +423,25 @@ Do not dump long terminal logs into the response.
 
 These notes are specific to this repo and can be replaced in a new project.
 
-### Current known-good mirror compile loop for this repo
+### Sagittary-specific build workflow
+
+For this repo, use `build-smart.py` which handles Windows paths correctly:
 
 ```bash
-mirror=/tmp/spelunkery-wsl
-rm -rf "$mirror"
-mkdir -p "$mirror"
-rsync -a --delete \
-  --exclude '.git' \
-  --exclude '.gradle' \
-  --exclude 'build' \
-  --exclude 'fabric/run' \
-  --exclude 'neoforge/run' \
-  ./ "$mirror"/
-cd "$mirror"
-env GRADLE_USER_HOME=/tmp/spelunkery-gradle-home \
-    SPELUNKERY_BUILD_ROOT=/tmp/spelunkery-build \
-    ./gradlew --project-cache-dir /tmp/spelunkery-project-cache \
-    --rerun-tasks \
-    :common:processResources \
-    :common:compileJava \
-    :fabric:compileJava \
-    :neoforge:compileJava
+# Development compile check (fast)
+cmd.exe /c "python build-smart.py"
+
+# Distribution build
+cmd.exe /c "python build-smart.py shadowJar"
 ```
+
+Output jars for distribution:
+- `fabric/build/libs/sagittary-fabric-X.X.X.jar`
+- `neoforge/build/libs/sagittary-neoforge-X.X.X.jar`
+
+Note: The `-raw.jar` files are intermediate builds missing the common module - do not distribute those.
 
 ### Current repo-specific caution
 
-- This repo frequently has user-owned texture edits in `common/src/main/resources/assets/spelunkery/textures/`
+- This repo frequently has user-owned texture edits in `common/src/main/resources/assets/sagittary/textures/`
 - Do not stage or revert those files unless the user explicitly asks for that
