@@ -11,7 +11,7 @@ authors = "VgLevelUp"
 description = '''
 
 '''
-#logoFile = ""
+logoFile = "icon.png"
 
 [[dependencies.structurevoidable]]
 modId = "neoforge"

@@ -445,3 +445,16 @@ Note: The `-raw.jar` files are intermediate builds missing the common module - d
 
 - This repo frequently has user-owned texture edits in `common/src/main/resources/assets/sagittary/textures/`
 - Do not stage or revert those files unless the user explicitly asks for that
+
+### MC 26.1.x Registration Warning
+
+If startup crashes contain:
+
+```text
+Block id not set
+Item id not set
+```
+
+check registration/property helpers first before debugging anything else.
+
+Recent Minecraft versions may require IDs to be assigned on `BlockBehaviour.Properties` and `Item.Properties` during construction. Fix the shared registration helpers before patching individual registrations.
