@@ -1,3 +1,4 @@
+//? if >=26.1 {
 package net.vg.structurevoidable.mixin.block;
 
 import net.minecraft.world.level.block.Block;
@@ -15,3 +16,4 @@ public interface BlockEntityTypeMixin {
         throw new AssertionError();
     }
 }
+//? }

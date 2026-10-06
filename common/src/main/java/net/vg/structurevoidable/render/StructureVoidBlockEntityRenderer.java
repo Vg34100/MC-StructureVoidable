@@ -125,7 +125,11 @@ public class StructureVoidBlockEntityRenderer implements BlockEntityRenderer<Str
                 pos.getY() - state.blockPos.getY(),
                 pos.getZ() - state.blockPos.getZ()
             );
+            //? if >=26.2 {
+            /*nodeCollector.submitMovingBlock(poseStack, movingState, 0);
+            *///? } else {
             nodeCollector.submitMovingBlock(poseStack, movingState);
+            //? }
             poseStack.popPose();
         }
     }

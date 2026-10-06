@@ -117,3 +117,9 @@ runs/
 
 # Avoid ignoring Gradle wrapper jar file (.jar files are usually ignored)
 !gradle-wrapper.jar
+
+# Stonecutter generated project views and local credentials
+versions/
+.env
+.env.*
+__pycache__/

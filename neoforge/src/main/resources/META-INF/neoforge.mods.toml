@@ -11,28 +11,31 @@ authors = "VgLevelUp"
 description = '''
 
 '''
-logoFile = "icon.png"
+${neoforge_icon_field} = "icon.png"
 
 [[dependencies.structurevoidable]]
 modId = "neoforge"
 type = "required"
-versionRange = "[21,)"
+versionRange = "[${neoforge_version},)"
 ordering = "NONE"
 side = "BOTH"
 
 [[dependencies.structurevoidable]]
 modId = "minecraft"
 type = "required"
-versionRange = "[1.21.5,)"
+versionRange = "[${minecraft_version}]"
 ordering = "NONE"
 side = "BOTH"
 
 [[dependencies.structurevoidable]]
 modId = "architectury"
 type = "required"
-versionRange = "[16.0.3,)"
+versionRange = "[${architectury_api_version},)"
 ordering = "AFTER"
 side = "BOTH"
 
 [[mixins]]
 config = "structurevoidable.mixins.json"
+
+[features.structurevoidable]
+javaVersion = "[${java_version},)"

@@ -30,14 +30,22 @@ public class MainOptionScreen extends OptionsSubScreen{
         Button serverSettingsButton = Button.builder(SERVER_SETTINGS_TEXT, button -> {
             Constants.LOGGER.debug("Server settings button clicked");
             assert this.minecraft != null;
+            //? if >=26.2 {
+            /*this.minecraft.gui.setScreen(new ServerOptionScreen(this));
+            *///? } else {
             this.minecraft.setScreen(new ServerOptionScreen(this));
+            //? }
         }).width(150).build();
         clickableWidgets.add(serverSettingsButton);
 
         Button clientSettingsButton = Button.builder(CLIENT_SETTINGS_TEXT, button -> {
             Constants.LOGGER.debug("Client settings button clicked");
             assert this.minecraft != null;
+            //? if >=26.2 {
+            /*this.minecraft.gui.setScreen(new ClientOptionScreen(this));
+            *///? } else {
             this.minecraft.setScreen(new ClientOptionScreen(this));
+            //? }
         }).width(150).build();
         clickableWidgets.add(clientSettingsButton);
 
