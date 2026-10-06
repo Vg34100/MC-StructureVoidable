@@ -4,6 +4,8 @@ import java.util.zip.ZipFile
 plugins {
     id 'dev.architectury.loom-no-remap' version '1.17.493' apply false
     id 'dev.architectury.loom' version '1.17.493' apply false
+    id 'com.modrinth.minotaur' version '2.10.0' apply false
+    id 'net.darkhax.curseforgegradle' version '1.3.33' apply false
 }
 
 def matrixFile = rootProject.file("gradle/matrix/${project.name}.properties")
@@ -193,6 +195,14 @@ if (legacy) {
 tasks.register('packageTarget') {
     group = 'build'
     dependsOn legacy ? 'remapJar' : 'jar'
+}
+
+// Publication is opt-in. Ordinary builds do not load credentials or manifests.
+if (providers.gradleProperty('publish_manifest').isPresent()) {
+    apply plugin: 'com.modrinth.minotaur'
+    apply plugin: 'net.darkhax.curseforgegradle'
+    tasks.register('curseforge', net.darkhax.curseforgegradle.TaskPublishCurseForge)
+    apply from: rootProject.file('gradle/publishing.gradle')
 }
 
 // Stage ordinary installed mods for either production launcher. Dependencies

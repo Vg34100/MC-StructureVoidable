@@ -4,6 +4,12 @@ This document defines the release-publication workflow for the Stonecutter matri
 
 Publishing is deliberately separate from validation. The presence of credentials must never cause an upload by itself.
 
+StructureVoidable uses the public configuration in `gradle/publishing.properties`: Modrinth `structurevoidable` (`3URi5PhQ`) and CurseForge `structure-voidable` (`1072628`). Names use **Structure Voidable** and internal version numbers include the Minecraft version and loader. Dependency relations come from actual loader metadata: Architectury on both loaders, Fabric API required on Fabric, and Mod Menu optional on Fabric.
+
+The existing Modrinth project declares required client/server support; the CurseForge project declares Client + Server. Modrinth version uploads inherit those project-level environments, which the helper checks without editing the public project. CurseForge files explicitly declare both environments, the exact game version/loader, and Java 21 or 25 from their matrix properties.
+
+The pinned publication plugins are Minotaur 2.10.0 and CurseForgeGradle 1.3.33. `.github/workflows/release.yml` builds and verifies the tagged revision, collects the matrix artifacts, and publishes only GitHub assets. Its manual dispatch defaults to build-only; draft/public mutations require explicit inputs and confirmation of local preflight. Modrinth and CurseForge remain local, sequential, receipt-journaled publication stages.
+
 ## Sources of Truth
 
 - `gradle/matrix/*.properties` — target Minecraft/loader/dependency facts.
