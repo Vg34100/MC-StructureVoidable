@@ -11,25 +11,31 @@ import java.util.Arrays;
 import java.util.List;
 
 public class ModKeyMaps {
+    //? if >=26.1 {
+    private static final KeyMapping.Category CATEGORY = KeyMapping.Category.MISC;
+    //? } else {
+    /*private static final String CATEGORY = KeyMapping.CATEGORY_MISC;
+    *///? }
+
     public static final KeyMapping CUSTOM_KEYMAPPING = new KeyMapping(
             "key.toggle_outline_visible",
             InputConstants.Type.KEYSYM,
             InputConstants.KEY_INSERT,
-            KeyMapping.Category.MISC
+            CATEGORY
     );
 
     public static final KeyMapping CYCLE_OUTLINE_SIZE_KEYMAPPING = new KeyMapping(
             "key.cycle_outline_size",
             InputConstants.Type.KEYSYM,
             InputConstants.KEY_I,
-            KeyMapping.Category.MISC
+            CATEGORY
     );
 
     public static final KeyMapping CYCLE_BLOCK_TYPE_KEYMAPPING = new KeyMapping(
             "key.cycle_block_type",
             InputConstants.Type.KEYSYM,
             InputConstants.KEY_O,
-            KeyMapping.Category.MISC
+            CATEGORY
     );
 
     private static final List<String> OUTLINE_SIZES = Arrays.asList("none", "small", "medium", "large");

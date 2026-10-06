@@ -1,0 +1,32 @@
+import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
+
+// Legacy registration uses the vanilla Builder; the modern constructor invoker
+// must never be applied to the legacy three-argument constructor.
+if (stonecutter.eval(stonecutter.current.version, '<26.1')) {
+    tasks.named('processResources') {
+        doLast {
+            def config = new File(destinationDir, 'structurevoidable.mixins.json')
+            def data = new JsonSlurper().parse(config)
+            if (!data.mixins.remove('block.BlockEntityTypeMixin')) {
+                throw new GradleException('Expected modern BlockEntityTypeMixin in canonical mixin config')
+            }
+            config.text = JsonOutput.prettyPrint(JsonOutput.toJson(data)) + '\n'
+        }
+    }
+}
+
+// Only Fabric targets whose dependency leaves this inner interface private need
+// our own widener. Do not advertise it in other loader/generation metadata.
+def matrix = new Properties()
+rootProject.file("gradle/matrix/${project.name}.properties").withInputStream { matrix.load(it) }
+if (matrix.getProperty('block_entity_supplier_widen', 'false').toBoolean()) {
+    tasks.named('processResources') {
+        doLast {
+            def metadata = new File(destinationDir, 'fabric.mod.json')
+            def data = new JsonSlurper().parse(metadata)
+            data.accessWidener = 'structurevoidable.accesswidener'
+            metadata.text = JsonOutput.prettyPrint(JsonOutput.toJson(data)) + '\n'
+        }
+    }
+}

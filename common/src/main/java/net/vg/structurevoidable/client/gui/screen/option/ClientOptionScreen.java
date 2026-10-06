@@ -119,6 +119,10 @@ public class ClientOptionScreen extends OptionsSubScreen {
     public void onClose() {
         ModConfigs.saveConfigs();
         assert this.minecraft != null;
+        //? if >=26.2 {
+        /*this.minecraft.gui.setScreen(this.lastScreen);
+        *///? } else {
         this.minecraft.setScreen(this.lastScreen);
+        //? }
     }
 }
