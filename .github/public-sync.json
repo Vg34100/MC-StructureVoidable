@@ -1,0 +1,24 @@
+{
+  "directory_names": [
+    ".claude",
+    ".codex",
+    ".agents",
+    "prompts",
+    ".development",
+    ".cursor"
+  ],
+  "file_names": [
+    "AGENTS.md",
+    "CLAUDE.md",
+    "GEMINI.md",
+    ".cursorrules",
+    ".aider.conf.yml",
+    ".aider.input.history",
+    ".aider.chat.history.md"
+  ],
+  "paths": [
+    "docs/development/history/structurevoidable-migration-notes.md",
+    "docs/development/session-summary.md",
+    ".github/copilot-instructions.md"
+  ]
+}
