@@ -376,3 +376,15 @@ Report only:
 - any new reusable compatibility boundary.
 
 Keep raw logs and migration diary material out of the closeout.
+
+## Development and Public Branches
+
+- Keep this local checkout on `work`; develop, commit, and push there.
+- `main` is generated automatically from committed `work` by `.github/workflows/sync-public.yml`.
+- Never merge generated `main` back into `work` or develop fixes directly on `main`.
+- `.github/public-sync.json` excludes agent context and selected work notes from the public snapshot.
+- Put new work-only notes under `.development/`, or add their exact paths to that filter.
+- Both branches are public. This arrangement does not make context private or erase history.
+- A personal fresh clone should use `git clone --branch work <repository-url>`.
+- See `docs/development/branch-workflow.md` for sync troubleshooting and release boundaries.
+- Branch sync is not permission to publish a mod release or commit unrelated unfinished work.
