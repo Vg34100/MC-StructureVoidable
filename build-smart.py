@@ -318,6 +318,16 @@ def jdk_major(home):
     return int(parts[1]) if parts[0] == "1" and len(parts) > 1 else int(parts[0])
 
 
+def jdk_is_preview(home):
+    """A preview with major 25 may lack APIs present in the final Java 25 runtime."""
+    try:
+        text = (Path(home) / 'release').read_text(encoding='utf-8')
+    except OSError:
+        return False
+    versions = re.findall(r'^JAVA_(?:RUNTIME_)?VERSION="([^"]+)"', text, re.MULTILINE)
+    return any('-' in version.split('+', 1)[0] for version in versions)
+
+
 def major_from_name(path_text):
     """Best-effort major version from a JDK directory name such as ms-25.0.3 or jdk1.8.0_202."""
     name = re.split(r'[\\/]', path_text.rstrip("\\/"))[-1]
@@ -426,7 +436,8 @@ def select_gradle_java(project, args):
         launch_home = os.environ.get("JAVA_HOME") or (str(Path(on_path).resolve().parent.parent) if on_path else None)
         if launch_home and java_binary(launch_home).exists() and (jdk_major(launch_home) or 0) >= required:
             return None, None, False
-        candidates = sorted((major, home) for major, home in candidate_jdks(project.root) if major >= required)
+        candidates = sorted(((major, home) for major, home in candidate_jdks(project.root) if major >= required),
+                            key=lambda row: (row[0], jdk_is_preview(row[1]), str(row[1])))
         if candidates:
             chosen = candidates[0][1]
             return str(chosen), f"Gradle JVM: {chosen} (matrix requires Java {required}+)", False
@@ -445,7 +456,8 @@ def select_gradle_java(project, args):
 
     candidates = candidate_jdks(project.root)
     if required is not None:
-        exact = sorted(home for major, home in candidates if major == required)
+        exact = sorted((home for major, home in candidates if major == required),
+                       key=lambda home: (jdk_is_preview(home), str(home)))
         newer = sorted((major, home) for major, home in candidates if major > required)
         chosen = exact[0] if exact else (newer[0][1] if newer else None)
     else:
@@ -791,15 +803,17 @@ def plan(project, task_arg):
 
     if task_arg.startswith("smoke-release-client:"):
         name = task_arg.split(":", 1)[1]
-        selected = [t for t in project.targets if t.name == name and t.loader in ("fabric", "neoforge")]
+        selected = [t for t in project.targets if t.name == name and t.loader in ("fabric", "forge", "neoforge")]
         if not selected:
-            raise PlanError("Packaged client smoke needs an exact registered Fabric/NeoForge target")
+            raise PlanError("Packaged client smoke needs an exact registered Fabric/Forge/NeoForge target")
         return "release-client", selected
 
     if task_arg == "release-smoke":
         # Deliberate representative coverage, not the full supported matrix.
-        names = ("26.2-fabric", "26.2-neoforge", "1.21.1-fabric", "1.21.1-neoforge")
-        return "release-clients", [targets_for(name)[0] for name in names]
+        selected = [t for t in project.targets if t.props.get('release_smoke') == 'true']
+        if not selected:
+            raise PlanError("No representative release_smoke=true targets in the matrix")
+        return "release-clients", selected
 
     if task_arg.startswith("smoke-server:"):
         target = task_arg.split(":", 1)[1]
@@ -894,7 +908,7 @@ def main(argv=None):
             if code:
                 return code
         if not print_plan:
-            print("RELEASE SMOKE PASS (4/4)")
+            print(f"RELEASE SMOKE PASS ({len(tasks)}/{len(tasks)})")
         return 0
 
     java_home, java_message, fatal = select_gradle_java(project, extra_args)
@@ -910,13 +924,14 @@ def main(argv=None):
         run_dir = Path(tempfile.gettempdir()) / "structurevoidable-release-smoke" / target.name / uuid.uuid4().hex
         log_dir = run_dir
         neoforge = None
-        if target.loader == "neoforge":
+        if target.loader in ("forge", "neoforge") or target.legacy:
             try:
                 run_dir, native_root, executable = smoke["neoforge_paths"](target.name, log_dir.name)
             except (OSError, RuntimeError, subprocess.SubprocessError) as error:
-                print(f"ERROR: NeoForge production launcher prerequisites: {error}")
+                print(f"ERROR: PortableMC production launcher prerequisites: {error}")
                 return 2
-            neoforge = (native_root, executable, target.props["neoforge_version"])
+            version_pin = {'fabric': 'fabric_loader_version', 'forge': 'forge_version', 'neoforge': 'neoforge_version'}[target.loader]
+            neoforge = (native_root, executable, target.props[version_pin], target.loader, target.version)
         client_tasks = [f":{target.name}:runReleaseClient", f"-Prelease_smoke_dir={run_dir}"] + extra_args
         if neoforge:
             client_tasks[0] = f":{target.name}:stageReleaseClient"
@@ -936,7 +951,7 @@ def main(argv=None):
             print("  Package: " + " ".join(gradle_command(project, [f":{target.name}:packageTarget"] + extra_args, java_home)))
             print(("  Stage: " if neoforge else "  Launch: ") + " ".join(gradle_command(project, client_tasks, java_home)))
             if neoforge:
-                print("  Launch: " + " ".join(smoke["neoforge_command"](executable, native_root, neoforge[2], target.legacy)))
+                print("  Launch: " + " ".join(smoke["neoforge_command"](executable, native_root, neoforge[2], target.legacy, target.loader, target.version)))
                 print(f"  PortableMC cache: {executable.parent}\n  Monitor logs: {log_dir}")
         elif kind == "servers":
             for task in tasks:

@@ -1,5 +1,5 @@
 modLoader = "javafml"
-loaderVersion = "[2,)"
+loaderVersion = "[${fml_loader_major},)"
 #issueTrackerURL = ""
 license = "MIT"
 
@@ -36,6 +36,7 @@ side = "BOTH"
 
 [[mixins]]
 config = "structurevoidable.mixins.json"
+${early_neoforge_mixin}
 
 [features.structurevoidable]
 javaVersion = "[${java_version},)"

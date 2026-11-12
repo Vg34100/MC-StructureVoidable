@@ -99,28 +99,19 @@ Reference backends:
 
 Prefer Loom's production client task (`ClientProductionRunTask`) when supported.
 
-### NeoForge
+### Forge / NeoForge
 
-Use the pinned PortableMC Windows x64 backend through WSL/Windows interop when there is no equivalent Loom production-client path.
+Use the pinned PortableMC Windows x64 backend through WSL/Windows interop when there is no equivalent Loom production-client path. Legacy Fabric uses that backend too; the 1.20.1 Forge boundary has its own sentinel.
 
 PortableMC must be fetched/cached reproducibly and checksum-verified. Do not depend on an existing user launcher profile.
 
-### Default sentinel set
+### Matrix-owned sentinel set
 
-For the current two-generation/two-loader matrix:
-
-```text
-current Fabric
-current NeoForge
-legacy Fabric
-legacy NeoForge
-```
-
-Sagittary's established representatives are the current 26.2 pair and legacy 1.21.1 pair.
-
-This is not a permanent magic list. Add a runtime target when it contains unique compatibility behavior not represented by the default four.
-
-A target that only differs by dependency pins and shares the already-proven compatibility path does not automatically need another production launch.
+`release_smoke=true` in target properties selects representative production
+checks. StructureVoidable currently covers 1.20.1 Fabric/Forge, 1.21.1
+Fabric/NeoForge, 26.3 Fabric/NeoForge, early NeoForge 26.1 and Fabric 26.1.1's
+supplier access widener. Add a sentinel for a new distinct compatibility shape;
+dependency-only adjacent targets still receive structural verification.
 
 ## Level 5 — Affected-Feature QA
 
@@ -180,7 +171,7 @@ Choose a sentinel because it exercises a distinct compatibility shape.
 Useful axes:
 
 - legacy vs current Minecraft generation;
-- Fabric vs NeoForge;
+- Fabric vs Forge vs NeoForge;
 - remapped vs unobfuscated packaging;
 - materially different renderer/menu/network API;
 - unique mixin target/descriptor;
@@ -254,18 +245,11 @@ Level 5: changed/high-risk gameplay behavior has representative QA
 Level 6: one final publication preflight passes
 ```
 
-For the current Sagittary matrix, the normal structural/runtime balance is:
-
-```text
-12/12 compile
-12/12 package + artifact verification
-4 representative packaged-JAR production smokes
-targeted/manual feature QA for affected systems
-12/12 Modrinth dry-run
-12/12 CurseForge dry-run
-```
-
-This is intentionally not twelve identical manual client sessions.
+StructureVoidable's structural gate covers every registered target (currently
+16/16 compile, package and artifact checks). Runtime follows the matrix-owned
+sentinels plus targeted/manual feature QA. Publishing dry-runs and the single
+final preflight belong to the separate release task, after its version and notes
+are chosen. Do not count title-screen smoke as in-world or settings-widget QA.
 
 ## Stopping Rule
 

@@ -2,7 +2,7 @@
 
 This file defines the default agent workflow for StructureVoidable.
 
-StructureVoidable is transitioning from a branch-split, single-version Architectury workflow to one Stonecutter multiversion branch. Detailed procedures live under `docs/development/`.
+StructureVoidable uses one Architectury + Stonecutter multiversion branch. Detailed procedures live under `docs/development/`; current handoff evidence lives in `session-summary.md` there.
 
 ## Priorities
 
@@ -20,12 +20,14 @@ StructureVoidable is transitioning from a branch-split, single-version Architect
 The completed migration should support:
 
 ```text
+1.20.1    Fabric / Forge (Java 17)
 1.21      Fabric / NeoForge
 1.21.1    Fabric / NeoForge
 26.1      Fabric / NeoForge
 26.1.1    Fabric / NeoForge
 26.1.2    Fabric / NeoForge
 26.2      Fabric / NeoForge
+26.3      Fabric / NeoForge
 ```
 
 Once the matrix exists, the exact registered target set must be discovered from:
@@ -77,7 +79,7 @@ After migration, responsibilities should be:
 - `stonecutter.gradle` — active target and aggregate matrix tasks.
 - `build.matrix.gradle` — generic per-target Gradle configuration.
 - `gradle/matrix/*.properties` — target-specific Minecraft/loader/Java/dependency facts.
-- `common/`, `fabric/`, `neoforge/` — canonical maintained source.
+- `common/`, `fabric/`, `forge/`, `neoforge/` — canonical maintained source. Forge is native Forge 47 for 1.20.1.
 - small compatibility source/resource areas — only where real version boundaries require them.
 - `build-smart.py` — normal compile/matrix/runtime/release wrapper.
 - `scripts/verify-matrix-artifacts.py` — structural release-artifact verification.
@@ -282,7 +284,7 @@ Full release acceptance is defined by `docs/development/validation-and-release.m
 
 ## Sentinel Rule
 
-Start with representative compatibility shapes rather than all twelve clients.
+Start with representative compatibility shapes rather than every client.
 
 For the intended matrix, the initial sentinel set should normally cover:
 
@@ -293,7 +295,12 @@ legacy Fabric
 legacy NeoForge
 ```
 
-For this suite, likely representatives are:
+The production smoke set is owned by `release_smoke=true` in matrix properties.
+It covers new 1.20.1 Fabric/Forge and 26.3 Fabric/NeoForge, existing 1.21.1
+Fabric/NeoForge, early NeoForge 26.1, and Fabric 26.1.1's supplier access widener.
+Use exact targets while debugging; run the aggregate after changes are stable.
+
+Original conversion representatives were:
 
 ```text
 26.2 Fabric
@@ -329,7 +336,7 @@ Continue only when:
 
 ## Feature Development After Migration
 
-After the migration is complete, do not develop new features twelve times in parallel.
+After the migration is complete, do not develop new features independently on every target.
 
 Default workflow:
 

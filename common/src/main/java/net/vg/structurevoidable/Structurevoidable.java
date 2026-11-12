@@ -2,10 +2,9 @@ package net.vg.structurevoidable;
 
 import net.vg.structurevoidable.block.entity.ModBlockEntities;
 import net.vg.structurevoidable.config.ModConfigs;
-import net.vg.structurevoidable.util.ModKeyMaps;
 
 public final class Structurevoidable {
-    public static final String MOD_ID = "structurevoidable";
+    public static final String MOD_ID = Constants.MOD_ID;
 
     public static void init() {
         // Write common init code here.
@@ -21,8 +20,5 @@ public final class Structurevoidable {
         Constants.LOGGER.info("Registering block entities...");
         ModBlockEntities.register();
 
-        // Key Maps
-        Constants.LOGGER.info("Registering keybindings...");
-        ModKeyMaps.register();
     }
 }

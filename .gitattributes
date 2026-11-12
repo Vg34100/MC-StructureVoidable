@@ -1,0 +1,2 @@
+# Legacy config fixtures intentionally retain mixed line endings and blank EOF lines.
+tests/config/*.properties -text whitespace=cr-at-eol,-blank-at-eof

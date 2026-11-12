@@ -33,4 +33,61 @@ Validated on the existing development machine using its Windows Python/Java inst
 - The smoke helper supports native Windows through interop as well as its existing WSL paths: create the fresh NeoForge log parent before its client directory, and normalize Windows drive paths when checking Fabric class origins.
 - Evidence summaries and per-target smoke receipts are in ignored `build/validation/`; raw launcher logs remain in isolated temporary instances.
 
-No full-matrix rebuild or passed client was repeated after acceptance. Subsequent user review reported manual gameplay PASS on 26.2 NeoForge and 1.21.1 NeoForge; 26.1.1 Fabric manual gameplay is unconfirmed. The runtime checklist records the visual/gameplay checks separately from automated startup evidence. During conversion, no publication, version bump, commit, push or machine-setup changes were performed.
+No full-matrix rebuild or passed client was repeated after acceptance. Subsequent user review reported manual gameplay PASS on 26.2 NeoForge and 1.21.1 NeoForge; 26.1.1 Fabric manual gameplay was subsequently confirmed for the published 1.0.3 release. The runtime checklist records the visual/gameplay checks separately from automated startup evidence. During conversion, no publication, version bump, commit, push or machine-setup changes were performed.
+
+## 1.20.1 / 26.3 extension and template adoption (2026-10-16)
+
+- **Native Forge 1.20.1:** register its mod event bus with Architectury before
+  shared deferred registration. Client renderer/key/config setup belongs to its
+  Dist.CLIENT MOD-bus subscriber. `mods.toml` uses mandatory booleans, the mixin
+  config is declared through Loom's Forge manifest hook, and resources need a
+  format-15 `pack.mcmeta`. The existing immediate renderer also supports 1.20.1;
+  no additional renderer overlay or saved block-entity identifier was needed.
+- **26.3:** keyboard input type is `KEYBOARD` instead of `KEYSYM`; keep the
+  target's key constants. Option callbacks use `ValueUpdateListener` instead of
+  `Consumer`; method references adapt both APIs without another screen copy.
+  FML 12 metadata and the `iconFile` field come from matrix properties. Root ASM
+  9.11 is the proven build-classloader family. A final Java 25 runtime is needed:
+  the older Loom preview lacks vanilla 26.3's `Math.powExact` API.
+- **26.3 production launch:** Loom 1.17.493's production client task omits
+  vanilla's additional JVM arguments, including the stack shadow required by
+  its development client. The target's `production_client_jvm_args` supplies
+  the official stack/native-access/internal-export arguments. This prevents
+  the observed native shader-compiler crash without changing mod artifacts;
+  PortableMC already reads those arguments from Minecraft's version metadata.
+- **Client isolation:** common initialization no longer touches key mappings.
+  NeoForge screen factories and renderer/key initialization live in its
+  Dist.CLIENT subscriber, with the older MOD-bus annotation only on 1.21.x.
+  The packaged-bytecode side check is supplemented by actual server startup
+  with the client classes present.
+- **Config lifetime:** vanilla can query Structure Void shapes before FML's
+  mod list exists. Keep `ModConfigs` class initialization inert and create its
+  provider only during common mod initialization. The regression fixture makes
+  an early metadata lookup fail; class loading must still succeed.
+- **Compatible storage:** the template's attributed SimpleConfig facade,
+  tracked provider, ConfigSpec and UTF-8 storage replace the unsafe file
+  recreation path. The exact versioned filename, eight keys and effective
+  defaults remain. The old shipped `config.display.block=stone` read as false,
+  while missing `config.block.type` fell back to stone; new defaults now declare
+  those types correctly. Loading never rewrites old files. Saving preserves
+  comments, unknown values and mixed LF/CRLF; missing defaults are appended.
+  Malformed/unreadable input and external edits cannot be silently replaced.
+- **Screens:** the template's vanilla OptionsSubScreen/draft/save pattern is
+  adapted to existing pages and controls. Only 1.20.1 owns its list/footer.
+  Done/Escape commit after persistence succeeds; Cancel discards; resize keeps
+  the draft. The block selector retains saved O-key none/default states instead
+  of replacing them on open. The existing empty server page adds no authority
+  or networking. Integer/double settings were not invented for this mod.
+- **Early NeoForge:** actual 26.1 server startup reproduced Architectury
+  20.0.4's unavailable `BreakBlockEvent`. Both pinned loaders expose
+  `BlockEvent$BreakEvent`. The template's exact-shape, idempotent plugin/anchor
+  repairs only that event handler on flagged NeoForge 26.1/26.1.1 nodes. Its
+  58 checks per node validate actual dependency bytes, unrelated methods,
+  rejected inputs and repeat application. Helpers stay outside Mixin's reserved
+  package; unaffected artifacts must contain neither the resource nor classes.
+
+The existing deferred block-entity registry already owns identifier construction.
+Its namespace/path and inherited serialization remain unchanged. No item/block
+properties factory, registry split, new integration or shared suite runtime was
+needed. The original two renderer implementations and all gameplay mixins are
+retained. Current gate results and manual limits live in `../session-summary.md`.

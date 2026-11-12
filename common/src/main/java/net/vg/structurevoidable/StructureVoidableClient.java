@@ -3,6 +3,7 @@ package net.vg.structurevoidable;
 import dev.architectury.registry.client.rendering.BlockEntityRendererRegistry;
 import net.vg.structurevoidable.block.entity.ModBlockEntities;
 import net.vg.structurevoidable.render.StructureVoidBlockEntityRenderer;
+import net.vg.structurevoidable.util.ModKeyMaps;
 
 public class StructureVoidableClient {
 
@@ -11,6 +12,7 @@ public class StructureVoidableClient {
      * It sets up client-side logic, such as rendering.
      */
     public static void initializeClient() {
+        ModKeyMaps.register();
         // Log the initialization start
         Constants.LOGGER.info("Initializing client-side components for Structure Voidable...");
 

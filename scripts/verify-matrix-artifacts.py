@@ -52,6 +52,10 @@ def inspect(matrix):
             'block/entity/ModBlockEntities', 'block/entity/StructureVoidBlockEntity',
             'render/StructureVoidBlockEntityRenderer', 'util/ModKeyMaps',
             'client/gui/screen/option/MainOptionScreen', 'config/ModConfigs',
+            'client/gui/screen/option/ClientOptionScreen', 'client/gui/screen/option/ServerOptionScreen',
+            'client/gui/screen/option/StructureVoidOptionsScreen', 'client/gui/screen/option/ConfigOptions',
+            'config/SimpleConfig', 'config/ModConfigProvider', 'config/ConfigSpec', 'config/Utf8Config',
+            'config/SettingsDraft',
         )
         for name in required_classes:
             assert PACKAGE + name + '.class' in files, f'Missing mod class: {name}'
@@ -78,7 +82,7 @@ def inspect(matrix):
                 name = (mixins['package'] + '.' + mixin).replace('.', '/') + '.class'
                 assert name in files, f'Missing mixin class: {name}'
         if pins['loader'] == 'fabric':
-            assert 'META-INF/neoforge.mods.toml' not in files, 'Wrong loader metadata'
+            assert not {'META-INF/mods.toml', 'META-INF/neoforge.mods.toml'} & files, 'Wrong loader metadata'
             meta = read_json('fabric.mod.json')
             assert meta['id'] == MOD_ID and meta['version'] == root_pins['mod_version']
             assert meta['depends']['minecraft'] == pins['minecraft_version']
@@ -111,25 +115,54 @@ def inspect(matrix):
                 assert b'net/minecraft/class_' in jar.read(PACKAGE + 'mixin/block/StructureVoidBlockMixin.class'), 'Unremapped Fabric release'
         else:
             assert 'fabric.mod.json' not in files, 'Wrong loader metadata'
-            meta = jar.read('META-INF/neoforge.mods.toml').decode()
+            loader = pins['loader']
+            meta = jar.read('META-INF/mods.toml' if loader == 'forge' else 'META-INF/neoforge.mods.toml').decode()
+            other = 'META-INF/neoforge.mods.toml' if loader == 'forge' else 'META-INF/mods.toml'
+            assert other not in files, 'Wrong loader metadata'
             assert quoted(meta, 'modId') == MOD_ID
             assert quoted(meta, 'version') == root_pins['mod_version']
-            assert PACKAGE + 'neoforge/StructurevoidableNeoForge.class' in files
+            bootstrap = 'forge/StructurevoidableForge' if loader == 'forge' else 'neoforge/StructurevoidableNeoForge'
+            assert PACKAGE + bootstrap + '.class' in files
+            hooks = 'ForgeClientHooks' if loader == 'forge' else 'NeoForgeClientHooks'
+            assert PACKAGE + loader + '/client/' + hooks + '.class' in files
             blocks = re.findall(r'\[\[dependencies\.structurevoidable\]\](.*?)(?=\n\[|\Z)', meta, re.DOTALL)
             deps = {quoted(block, 'modId'): block for block in blocks}
-            assert set(deps) == {'minecraft', 'neoforge', 'architectury'}
+            assert set(deps) == {'minecraft', loader, 'architectury'}
             assert quoted(deps['minecraft'], 'versionRange') == '[' + pins['minecraft_version'] + ']'
-            for dep, pin in (('neoforge', 'neoforge_version'), ('architectury', 'architectury_api_version')):
+            for dep, pin in ((loader, loader + '_version'), ('architectury', 'architectury_api_version')):
                 assert quoted(deps[dep], 'versionRange') == '[' + pins[pin] + ',)'
-            assert all(quoted(block, 'type') == 'required' for block in deps.values())
+            if loader == 'forge':
+                assert quoted(meta, 'loaderVersion') == '[47,)'
+                assert all(re.search(r'^mandatory\s*=\s*true$', block, re.MULTILINE) for block in deps.values())
+                assert read_json('pack.mcmeta')['pack']['pack_format'] == 15
+                manifest = jar.read('META-INF/MANIFEST.MF').decode()
+                assert 'MixinConfigs: structurevoidable.mixins.json' in manifest
+            else:
+                assert all(quoted(block, 'type') == 'required' for block in deps.values())
+                assert quoted(meta, 'loaderVersion') == '[' + pins.get('fml_loader_version', '2').split('.')[0] + ',)'
+                assert quoted(meta, 'config') == 'structurevoidable.mixins.json'
             assert quoted(meta, 'javaVersion') == '[' + pins['java_version'] + ',)'
-            icon_field = 'iconFile' if pins['minecraft_version'] == '26.2' else 'logoFile'
+            icon_field = 'iconFile' if not legacy and tuple(map(int, pins['minecraft_version'].split('.'))) >= (26, 2) else 'logoFile'
             assert quoted(meta, icon_field) in files
-            assert quoted(meta, 'config') == 'structurevoidable.mixins.json'
+        early = pins.get('early_neoforge_event_fix') == 'true'
+        early_config = 'structurevoidable-early-neoforge.mixins.json'
+        assert (early_config in files) == early, 'Wrong early-NeoForge resource ownership'
+        for name in ('EarlyNeoForgeEventFix', 'EarlyNeoForgeMixinPlugin', 'mixin/EarlyNeoForgeAnchor'):
+            assert (PACKAGE + 'neoforge/compat/' + name + '.class' in files) == early, 'Wrong early-NeoForge class ownership'
+        if early:
+            assert pins['loader'] == 'neoforge' and pins['minecraft_version'] in ('26.1', '26.1.1')
+            data = read_json(early_config)
+            assert data['required'] is True and data['compatibilityLevel'] == 'JAVA_25'
+            assert data['package'] == 'net.vg.structurevoidable.neoforge.compat.mixin'
+            assert data['plugin'] == 'net.vg.structurevoidable.neoforge.compat.EarlyNeoForgeMixinPlugin'
+            assert data['mixins'] == ['EarlyNeoForgeAnchor']
+        if pins['loader'] == 'neoforge':
+            configs = re.findall(r'^config\s*=\s*"([^"]+)"', meta, re.MULTILINE)
+            assert configs == ['structurevoidable.mixins.json'] + ([early_config] if early else [])
         assert 'assets/structurevoidable/lang/en_us.json' in files
         assert any(name.startswith('LICENSE') for name in files)
         assert not any(name.endswith(('.jar', '.java')) for name in files), 'Embedded JAR or source archive'
-        for name in ('fabric.mod.json', 'META-INF/neoforge.mods.toml', 'structurevoidable.mixins.json'):
+        for name in ('fabric.mod.json', 'META-INF/mods.toml', 'META-INF/neoforge.mods.toml', 'structurevoidable.mixins.json'):
             if name in files:
                 assert b'${' not in jar.read(name), f'Unexpanded metadata: {name}'
     print(f'{matrix.stem}: release metadata, classes, mixins and resources OK')

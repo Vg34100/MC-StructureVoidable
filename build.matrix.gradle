@@ -21,7 +21,13 @@ def minecraftVersion = required('minecraft_version')
 def javaVersion = required('java_version') as int
 def legacy = required('loom_generation') == 'legacy'
 def isFabric = loader == 'fabric'
+def isForge = loader == 'forge'
+def isNeoForge = loader == 'neoforge'
 def supplierWidener = isFabric && matrix.getProperty('block_entity_supplier_widen', 'false').toBoolean()
+def earlyNeoForgeCompat = matrix.getProperty('early_neoforge_event_fix', 'false').toBoolean()
+if (earlyNeoForgeCompat && (!isNeoForge || !stonecutter.eval(minecraftVersion, '>=26.1') || !stonecutter.eval(minecraftVersion, '<26.1.2'))) {
+    throw new GradleException('The proven Architectury event repair is limited to NeoForge 26.1/26.1.1')
+}
 
 
 group = rootProject.maven_group
@@ -29,7 +35,10 @@ version = rootProject.mod_version
 apply plugin: legacy ? 'dev.architectury.loom' : 'dev.architectury.loom-no-remap'
 // Each node already owns common + loader sources. Architectury API remains a
 // dependency, but no common-project transformation/Gradle plugin is required.
-if (!isFabric) loom { neoForge {} }
+if (isNeoForge) loom { neoForge {} }
+if (isForge) loom {
+    forge { mixinConfig 'structurevoidable.mixins.json' }
+}
 if (legacy) loom { silentMojangMappingsLicense() }
 if (supplierWidener) loom { accessWidenerPath = rootProject.file('fabric/src/main/resources/structurevoidable.accesswidener') }
 
@@ -37,6 +46,7 @@ base { archivesName = "${rootProject.archives_name}-${loader}-${minecraftVersion
 repositories {
     maven { url 'https://maven.terraformersmc.com/releases/' }
     maven { url 'https://maven.neoforged.net/releases/' }
+    maven { url 'https://maven.minecraftforge.net/' }
 }
 
 sourceSets.main {
@@ -132,10 +142,10 @@ dependencies {
     if (isFabric) {
         modDependency("net.fabricmc:fabric-loader:${required('fabric_loader_version')}")
         modDependency("net.fabricmc.fabric-api:fabric-api:${required('fabric_api_version')}")
+    } else if (isForge) {
+        forge "net.minecraftforge:forge:${minecraftVersion}-${required('forge_version')}"
     } else {
         neoForge "net.neoforged:neoforge:${required('neoforge_version')}"
-        // Common client annotations compile against Fabric Loader on both loaders.
-        compileOnly "net.fabricmc:fabric-loader:${required('fabric_loader_version')}"
     }
     modDependency("dev.architectury:architectury-${loader}:${required('architectury_api_version')}")
     if (isFabric) modDependency("com.terraformersmc:modmenu:${required('modmenu_version')}")
@@ -155,9 +165,12 @@ def metadata = [
     minecraft_version: minecraftVersion,
     java_version: javaVersion,
     architectury_api_version: required('architectury_api_version'),
-    fabric_loader_version: required('fabric_loader_version'),
+    fabric_loader_version: matrix.getProperty('fabric_loader_version', ''),
+    forge_version: matrix.getProperty('forge_version', ''),
+    fml_loader_major: matrix.getProperty('fml_loader_version', '2').tokenize('.')[0],
     neoforge_version: matrix.getProperty('neoforge_version', ''),
-    neoforge_icon_field: stonecutter.eval(minecraftVersion, '>=26.2') ? 'iconFile' : 'logoFile'
+    neoforge_icon_field: stonecutter.eval(minecraftVersion, '>=26.2') ? 'iconFile' : 'logoFile',
+    early_neoforge_mixin: earlyNeoForgeCompat ? '[[mixins]]\nconfig = "structurevoidable-early-neoforge.mixins.json"\n' : ''
 ]
 processResources {
     // Canonical resources take priority over checked-in datagen duplicates.
@@ -165,12 +178,34 @@ processResources {
     inputs.properties(metadata)
     inputs.property('block_entity_supplier_widen', supplierWidener)
     if (!supplierWidener) exclude 'structurevoidable.accesswidener'
-    filesMatching(['fabric.mod.json', 'META-INF/neoforge.mods.toml', '*.mixins.json']) { expand(metadata) }
+    if (!earlyNeoForgeCompat) exclude 'structurevoidable-early-neoforge.mixins.json'
+    filesMatching(['fabric.mod.json', 'META-INF/mods.toml', 'META-INF/neoforge.mods.toml', '*.mixins.json']) { expand(metadata) }
+}
+
+if (earlyNeoForgeCompat) {
+    def checks = tasks.register('compileEarlyNeoForgeChecks', JavaCompile) {
+        dependsOn 'classes'
+        source rootProject.fileTree('tests/compat/java') { include '**/*.java' }
+        classpath = sourceSets.main.runtimeClasspath
+        destinationDirectory = layout.buildDirectory.dir('compat-checks')
+        javaCompiler = javaToolchains.compilerFor(java.toolchain)
+    }
+    tasks.register('verifyEarlyNeoForgeCompat', JavaExec) {
+        group = 'verification'
+        dependsOn checks
+        classpath = files(checks.map { it.destinationDirectory }) + sourceSets.main.runtimeClasspath
+        javaLauncher = javaToolchains.launcherFor(java.toolchain)
+        mainClass = 'net.vg.structurevoidable.neoforge.compat.EarlyNeoForgeChecks'
+    }
 }
 apply from: rootProject.file('gradle/resource-compat.gradle')
 
 loom {
-    runs.configureEach { runDir = rootProject.file("runs/${project.name}/${name}") }
+    runs.configureEach {
+        runDir = name == 'server' && providers.gradleProperty('server_smoke_dir').isPresent()
+                ? rootProject.file(providers.gradleProperty('server_smoke_dir').get())
+                : rootProject.file("runs/${project.name}/${name}")
+    }
 }
 tasks.register('verifyLaunchSetup') {
     group = 'verification'
@@ -207,13 +242,21 @@ if (providers.gradleProperty('publish_manifest').isPresent()) {
 
 // Stage ordinary installed mods for either production launcher. Dependencies
 // come from their original artifacts, never Loom's remapped development cache.
-if (isFabric || loader == 'neoforge') {
+if (isFabric || isForge || isNeoForge) {
     def smokeRun = layout.dir(providers.gradleProperty('release_smoke_dir').map { rootProject.file(it) })
     def smokeDependencies = configurations.create('releaseSmokeMods') {
         canBeConsumed = false
-        extendsFrom(*((legacy ? ['modImplementation', 'modRuntimeOnly', 'modLocalRuntime']
-                : ['implementation', 'runtimeOnly', 'localRuntime']).collect { configurations.getByName(it) }))
+        transitive = false
         attributes.attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage, Usage.JAVA_RUNTIME))
+    }
+    // Original parent JARs contain their nested modules. Do not stage Loom's
+    // separate development copies beside the installed parent mod.
+    dependencies.add(smokeDependencies.name, "dev.architectury:architectury-${loader}:${required('architectury_api_version')}")
+    if (isFabric) {
+        dependencies.add(smokeDependencies.name, "net.fabricmc.fabric-api:fabric-api:${required('fabric_api_version')}")
+        if (providers.gradleProperty('release_smoke_modmenu').getOrElse('false').toBoolean()) {
+            dependencies.add(smokeDependencies.name, "com.terraformersmc:modmenu:${required('modmenu_version')}")
+        }
     }
     def stage = tasks.register('stageReleaseClient') {
         dependsOn 'packageTarget'
@@ -241,6 +284,9 @@ if (isFabric || loader == 'neoforge') {
         mods.setFrom([]) // Only normal discovery from this fresh mods directory.
         runDir.set(smokeRun)
         useXVFB.set(false)
+        // Unlike Loom's development run, this task does not inherit vanilla's
+        // Java/native launch flags. Matrix entries opt into the exact boundary.
+        jvmArgs.addAll(matrix.getProperty('production_client_jvm_args', '').tokenize())
         jvmArgs.add(legacy
                 ? '-Xlog:class+load=info,class+init=info:file=class-load-%p.log:uptime,level,tags'
                 : '-Xlog:class+load=info:file=class-load-%p.log:uptime,level,tags')

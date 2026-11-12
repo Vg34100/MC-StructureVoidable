@@ -1,0 +1,34 @@
+modLoader = "javafml"
+loaderVersion = "[47,)"
+license = "MIT"
+
+[[mods]]
+modId = "structurevoidable"
+version = "${version}"
+displayName = "StructureVoidable"
+description = "Makes using the Structure Void block easier."
+logoFile = "assets/structurevoidable/icon.png"
+
+[[dependencies.structurevoidable]]
+modId = "forge"
+mandatory = true
+versionRange = "[${forge_version},)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.structurevoidable]]
+modId = "minecraft"
+mandatory = true
+versionRange = "[${minecraft_version}]"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.structurevoidable]]
+modId = "architectury"
+mandatory = true
+versionRange = "[${architectury_api_version},)"
+ordering = "AFTER"
+side = "BOTH"
+
+[features.structurevoidable]
+javaVersion = "[${java_version},)"

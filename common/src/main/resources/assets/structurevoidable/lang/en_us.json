@@ -1,5 +1,6 @@
 {
   "gui.reset": "Reset",
+  "config.save.failed": "Could not save. Try again or Cancel.",
   "config.general.title": "Structure Voidable Settings",
   "config.server.title": "Server Settings",
   "config.client.title": "Client Settings",
@@ -33,6 +34,8 @@
   "outline.color.void": "Void",
   "outline.color.barrier": "Barrier",
 
+  "block.type.none": "None",
+  "block.type.default": "Default",
   "block.type.stone": "Stone",
   "block.type.deepslate": "Deepslate",
   "block.type.dirt": "Dirt",

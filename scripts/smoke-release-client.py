@@ -81,12 +81,13 @@ def acquire_portablemc(executable):
     print(f'PortableMC {PORTABLEMC_VERSION}: verified cached executable {executable}', flush=True)
 
 
-def neoforge_command(executable, root, version, legacy):
+def neoforge_command(executable, root, version, legacy, loader='neoforge', minecraft=None):
     return [str(executable), 'start', '--main-dir', ntpath.join(root, 'main'),
             '--mc-dir', ntpath.join(root, 'client'), '--jvm-policy', 'mojang',
-            '--username', 'NeoSmoke', '--jvm-arg=-Xmx2G',
+            '--username', 'ReleaseSmoke', '--jvm-arg=-Xmx2G',
             '--jvm-arg=-Xlog:' + ('class*' if legacy else 'class+load') + '=info:file=class-load-%p.log',
-            '-vv', 'neoforge::' + version]
+            '-vv', ('neoforge::' + version if loader == 'neoforge' else
+                    f'forge::{minecraft}-{version}' if loader == 'forge' else f'fabric:{minecraft}:{version}')]
 
 
 def staged_release(run_dir, artifact, sha256):
@@ -113,11 +114,12 @@ def run(command, run_dir, artifact, project_root, legacy=False, neoforge=None, l
     print(f"Testing release JAR: {artifact} | {artifact.stat().st_size} bytes | SHA-256 {sha256}", flush=True)
     print(f"{'PortableMC' if neoforge else 'Loom'} production client; isolated directory: {run_dir}", flush=True)
     dependencies = ''
+    forge_loader = bool(neoforge and neoforge[3] in ('forge', 'neoforge'))
     if neoforge:
-        root, executable, version = neoforge
+        root, executable, version, loader, minecraft = neoforge
         try:
             acquire_portablemc(executable)
-            launch = neoforge_command(executable, root, version, legacy)
+            launch = neoforge_command(executable, root, version, legacy, loader, minecraft)
             with (log_dir / 'install.log').open('w') as output:
                 subprocess.run(launch + ['--dry'], stdout=output, stderr=subprocess.STDOUT, check=True,
                                timeout=float(os.environ.get('BUILD_SMART_RELEASE_INSTALL_TIMEOUT', '600')))
@@ -138,7 +140,8 @@ def run(command, run_dir, artifact, project_root, legacy=False, neoforge=None, l
     log = (Path(log_dir) / 'portablemc.log') if neoforge else run_dir / 'gradle.log'
     fatal = re.compile(r'Incompatible mods found|Mixin apply .*failed|MixinApplyError|InvalidMixinException|'
                        r'InjectionError|ModResolutionException|Exception in thread|Crash report saved|\bFATAL\b|'
-                       r'ModLoadingException|ModLoadingFailedException|Loading errors encountered', re.I)
+                       r'ModLoadingException|ModLoadingFailedException|Loading errors encountered|'
+                       r'Mixin transformation of .* failed|BootstrapMethodError|Failed to reload resource packs', re.I)
     with log.open('w') as output:
         process = subprocess.Popen(command, cwd=project_root, stdout=output, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
         try:
@@ -149,6 +152,8 @@ def run(command, run_dir, artifact, project_root, legacy=False, neoforge=None, l
                 match = fatal.search(text + runtime)
                 if match:
                     raise RuntimeError(f'Fatal startup error: {match[0]}')
+                if 'Missing metadata in pack mod:structurevoidable' in text + runtime:
+                    raise RuntimeError('StructureVoidable resource pack is missing required metadata')
                 if list((run_dir / 'crash-reports').glob('*')):
                     raise RuntimeError('Minecraft produced a crash report')
                 class_logs = list(run_dir.glob('class-load-*.log'))
@@ -163,7 +168,7 @@ def run(command, run_dir, artifact, project_root, legacy=False, neoforge=None, l
                             expected = run_dir / 'mods' / artifact.name
                             source = urllib.parse.urlparse(line.split(' source: ', 1)[1])
                             source_path = urllib.parse.unquote(source.path)
-                            if neoforge and legacy and source.scheme == 'union':
+                            if forge_loader and legacy and source.scheme == 'union':
                                 # SecureJarHandler's archive URL adds its filesystem
                                 # ID; the underlying file must still be this exact JAR.
                                 archive = re.fullmatch(r'(.+\.jar)#\d+!/', source_path)
@@ -177,14 +182,16 @@ def run(command, run_dir, artifact, project_root, legacy=False, neoforge=None, l
                                 raise RuntimeError(f'Wrong StructureVoidable code origin: {line}')
                 options = run_dir / 'options.txt'
                 marker = 'startedCleanly:true' if options.is_file() and 'startedCleanly:true' in options.read_text() else None
-                screen = 'net/minecraft/client/gui/screens/AccessibilityOnboardingScreen' if neoforge else 'net/minecraft/class_8032'
+                screen = 'net/minecraft/client/gui/screens/AccessibilityOnboardingScreen' if forge_loader else 'net/minecraft/class_8032'
+                if class_logs and "Initializing 'net/minecraftforge/client/gui/LoadingErrorScreen'" in classes:
+                    raise RuntimeError('Forge opened its loading-error screen')
                 if legacy and class_logs and f"Initializing '{screen}'" in classes:
                     # 1.21.1's onGameLoadFinished creates the first-run screen
                     # after finishReload; it has no startedCleanly option.
                     first_screen_at = first_screen_at or time.monotonic()
                     if 'Reloading ResourceManager' in text + runtime and 'atlas' in text + runtime and time.monotonic() - first_screen_at >= 3:
                         marker = 'initial resource reload + first-screen initialization (3s stable)'
-                production = not neoforge or ('CLIENT in PROD' in text + runtime if not legacy
+                production = not forge_loader or ('CLIENT in PROD' in text + runtime if not legacy
                                               else "Launching target 'forgeclient'" in text + runtime)
                 if origin and marker and production:
                     # This is saved at the end of vanilla onGameLoadFinished,

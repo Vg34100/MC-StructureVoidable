@@ -25,8 +25,13 @@ stonecutter {
             def target = new Properties()
             targetFile.withInputStream { target.load(it) }
             def name = targetFile.name - '.properties'
-            if (name != "${target.minecraft_version}-${target.loader}" || !(target.loader in ['fabric', 'neoforge'])) {
+            if (name != "${target.minecraft_version}-${target.loader}" || !(target.loader in ['fabric', 'forge', 'neoforge'])) {
                 throw new GradleException("Invalid matrix target: ${targetFile}")
+            }
+            if (!(target.java_version in ['17', '21', '25']) ||
+                    !(target.loom_generation in ['legacy', 'current']) ||
+                    (target.loader == 'forge' && (target.minecraft_version != '1.20.1' || target.java_version != '17'))) {
+                throw new GradleException("Unsupported Java/Loom/loader combination: ${targetFile}")
             }
             version(name, target.minecraft_version)
         }
@@ -37,5 +42,7 @@ stonecutter {
 gradle.beforeProject { project ->
     if (project.name.endsWith('-neoforge')) {
         project.extensions.extraProperties.set('loom.platform', 'neoforge')
+    } else if (project.name.endsWith('-forge')) {
+        project.extensions.extraProperties.set('loom.platform', 'forge')
     }
 }
