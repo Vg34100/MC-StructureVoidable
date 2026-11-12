@@ -1,43 +1,65 @@
 # Build and test matrix
 
-Fishing Frenzy has verified Fabric and NeoForge targets for Minecraft 1.21, 1.21.1, 26.1, 26.1.1,
-26.1.2, and 26.2 from one source tree. Each matrix target has pinned dependencies in
-`gradle/matrix/` and writes its jar and future run files to a target-specific directory.
+StructureVoidable maintains 16 target nodes discovered from `gradle/matrix/`:
+1.20.1 Fabric/Forge (Java 17), 1.21/1.21.1 Fabric/NeoForge (Java 21), and
+26.1/26.1.1/26.1.2/26.2/26.3 Fabric/NeoForge (Java 25).
+The first two generations use `remapJar`; 26.x uses no-remap `jar`.
+Dependencies and loader facts belong to each target's property file.
 
-The 1.21 / 1.21.1 targets are a legacy generation, not aliases for the current build: they use
-Java 21, Architectury 13, legacy resource/source generation, and target-specific loader
-coordinates. Their `runClient` and `runServer` tasks must use Gradle's Java 21 `javaLauncher`.
-Do not configure `JavaExec.executable` as well: IntelliJ will reject mismatched `executable` and
-`javaLauncher` toolchains. The generated Gradle task under `<target> > Tasks > loom` is the
-intended IntelliJ launch entry point. See the legacy-backport section in
-[Stonecutter multi-version migration](stonecutter-multiversion-migration.md).
-
-The two earliest NeoForge targets carry a narrow runtime compatibility transform in Fishing Frenzy.
-Their published NeoForge releases expose `BlockEvent.BreakEvent`, whereas Architectury 20.0.4
-references the later `BreakBlockEvent` name. The NeoForge-only Mixin config rewrites that one
-Architectury handler's descriptors before the JVM links it; it is a no-op when the newer name is
-already present. It neither replaces Architectury nor adds a fake `net.neoforged.*` class. This was
-validated in a production Prism instance with the ordinary Architectury 20.0.4 jar. Re-evaluate the
-adapter whenever either dependency changes.
-
-For the reusable conversion procedure and the NeoForge platform-wiring pitfalls, see
-[Stonecutter multi-version migration](stonecutter-multiversion-migration.md).
-
-Use the smart wrapper from the repository root:
+Use the existing wrapper from the repository root:
 
 ```text
+python build-smart.py compile:1.20.1-forge
+python build-smart.py compile:26.3-fabric
 python build-smart.py matrix:compile
 python build-smart.py matrix:package
+python scripts/verify-matrix-artifacts.py
+python scripts/check-side-safety.py
+python scripts/test-config.py
+python scripts/test-publishing.py
 python build-smart.py matrix:server
-python build-smart.py matrix
+python build-smart.py release-smoke
 ```
 
-`matrix:compile` compiles all twelve targets. `matrix:package` processes their resources and builds
-their jars. `matrix:server` runs Loom's `configureLaunch` task for each target, generating the
-dedicated-server launch configuration without starting a server. A release still requires the
-normal Fabric and NeoForge `runServer` runtime smoke tests.
+`matrix:server` verifies launch configurations/toolchains without launching a
+server. Real server smoke uses `smoke-server:<exact-target>`; passing requires
+Done, a sent stop command, shutdown and successful exit. A fresh test directory
+can be supplied with `-Pserver_smoke_dir=<path>`. It needs explicit EULA acceptance;
+use loopback binding and an ephemeral port for isolated checks. Never reuse an
+existing player world for these tests.
 
-Compilation and launch configuration do not prove a client can survive resource reload. Before
-declaring a Minecraft-version target usable, manually run that target's `runClient` task and wait
-through the initial resource reload to a stable title screen. Stop the client normally before
-testing the next target.
+Run tasks use Gradle's target-specific `javaLauncher`. Do not also set
+`JavaExec.executable`. Gradle/current Minecraft need a final Java 25 runtime;
+the old `25-loom` preview lacks `Math.powExact`, used by 26.3's renderer.
+Automatic local JDK discovery prefers a final runtime over a preview of the same
+major. Existing explicit Java settings remain authoritative.
+
+The 26.3 Fabric production task reads `production_client_jvm_args` from its
+matrix file. These are Minecraft's official stack/native-access/internal-export
+arguments, omitted by Loom's production task. Keep them when running that task;
+PortableMC already consumes the official version metadata.
+
+Packaged smoke uses Loom for modern Fabric and checksum-pinned PortableMC 5.0.5
+for legacy Fabric and Forge/NeoForge through the existing Windows backend.
+It stages original parent dependencies, validates the exact mod JAR hash/origin,
+waits for completed startup/resource reload and terminates its owned JVM.
+Mod Menu stays optional; `-Prelease_smoke_modmenu=true` adds it for an integration
+sentinel. Production sentinels are selected by `release_smoke=true`, separately
+from the complete structural matrix. No twelve- or sixteen-target list is hidden
+in the wrapper.
+
+On the original 26.1/26.1.1 NeoForge pins, `early_neoforge_event_fix=true`
+activates the template's exact Architectury event-bridge repair. Run
+`python build-smart.py :26.1-neoforge:verifyEarlyNeoForgeCompat :26.1.1-neoforge:verifyEarlyNeoForgeCompat`
+when either pin or the repair changes. These checks use actual dependency bytes;
+production artifacts must omit the patch outside those two targets.
+
+The side checker rejects client GUI/key/render references from common and native
+common bootstrap bytecode. It allows the existing client package/class roots;
+real dedicated servers with those client classes still packaged complement this
+check. The config tests run copies of old-file fixtures in temporary directories.
+They do not access a user's config directory or run Minecraft.
+
+See [the runtime checklist](structurevoidable-runtime-checklist.md) for manual
+visual/UI/world checks and [the session summary](session-summary.md) for actual
+per-gate evidence. Startup alone is not interactive gameplay acceptance.

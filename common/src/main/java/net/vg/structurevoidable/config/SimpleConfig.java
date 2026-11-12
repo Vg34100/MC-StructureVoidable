@@ -6,7 +6,7 @@ package net.vg.structurevoidable.config;
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
- * with the Software without restriction, including without limitation the rights
+ * in the Software without restriction, including without limitation the rights
  * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
@@ -21,272 +21,182 @@ package net.vg.structurevoidable.config;
  * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
+ *
+ * Compatible suite API, backed by Utf8Config. See examples/README.md for the
+ * deliberate validation and non-destructive save differences from older copies.
  */
 
 import dev.architectury.platform.Platform;
 import net.vg.structurevoidable.Constants;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import java.io.File;
 import java.io.IOException;
-import java.io.PrintWriter;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.LinkedHashMap;
-import java.util.Map;
-import java.util.Scanner;
+import java.util.List;
+import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.function.Predicate;
 
-public class SimpleConfig {
-
-    private static final Logger LOGGER = LogManager.getLogger("SimpleConfig");
-    private final LinkedHashMap<String, ConfigEntry> config = new LinkedHashMap<>();
-    private final ConfigRequest request;
-
-    public static final String MOD_ID = Constants.MOD_ID;
-    public static final String MOD_NAME = Constants.MOD_NAME;
-    public static final String MOD_VERSION = Constants.MOD_VERSION;
-
-    private boolean broken = false;
-
+public final class SimpleConfig {
+    @FunctionalInterface
     public interface DefaultConfig {
         String get(String namespace);
-
-        static String empty(String namespace) {
-            return "";
-        }
+        static String empty(String namespace) { return ""; }
+        // Existing providers/lambdas inherit text-based key tracking unchanged.
+        default ConfigSpec spec() { return null; }
     }
 
-    public static class ConfigRequest {
+    public static final class ConfigRequest {
+        private final Path path;
+        private DefaultConfig provider = DefaultConfig::empty;
+        private Consumer<String> diagnostic = message -> System.getLogger(SimpleConfig.class.getName())
+                .log(System.Logger.Level.WARNING, message);
 
-        private final File file;
-        private final String filename;
-        private DefaultConfig provider;
-
-        private ConfigRequest(File file, String filename) {
-            this.file = file;
-            this.filename = filename;
-            this.provider = DefaultConfig::empty;
-        }
-
-        public ConfigRequest provider(DefaultConfig provider) {
-            this.provider = provider;
-            return this;
-        }
-
-        public SimpleConfig request() {
-            return new SimpleConfig(this);
-        }
-
-        private String getConfig() {
-            return provider.get(filename) + "\n";
-        }
+        private ConfigRequest(Path path) { this.path = path; }
+        public ConfigRequest provider(DefaultConfig provider) { this.provider = provider; return this; }
+        public ConfigRequest diagnostic(Consumer<String> diagnostic) { this.diagnostic = diagnostic; return this; }
+        public SimpleConfig request() { return new SimpleConfig(this); }
     }
 
+    /** Preferred for new code: the caller owns the complete filename policy. */
+    public static ConfigRequest of(Path explicitFilename) { return new ConfigRequest(explicitFilename); }
+
+    /** Legacy suite policy: <name>-<loaded mod version>.properties. No search or migration. */
     public static ConfigRequest of(String filename) {
-        Path path = Platform.getConfigFolder();
-        String versionedFilename = filename + "-" + MOD_VERSION + ".properties";
-        return new ConfigRequest(path.resolve(versionedFilename).toFile(), versionedFilename);
+        return of(versionedPath(Platform.getConfigFolder(), filename,
+                Platform.getMod(Constants.MOD_ID).getVersion()));
     }
 
-    private void createConfig() throws IOException {
-        request.file.getParentFile().mkdirs();
-        Files.createFile(request.file.toPath());
-
-        PrintWriter writer = new PrintWriter(request.file, StandardCharsets.UTF_8);
-        writer.write(request.getConfig());
-        writer.close();
+    public static Path versionedPath(Path folder, String filename, String version) {
+        if (!filename.matches("[a-zA-Z0-9_.-]+") || !version.matches("[a-zA-Z0-9_.+-]+"))
+            throw new IllegalArgumentException("Expected filename components, not a path");
+        return folder.resolve(filename + "-" + version + ".properties");
     }
 
-    private void loadConfig() throws IOException {
-        Scanner reader = new Scanner(request.file);
-        StringBuilder currentComment = new StringBuilder();
-        for (int line = 1; reader.hasNextLine(); line++) {
-            currentComment = parseConfigEntry(reader.nextLine(), line, currentComment);
-        }
-    }
-
-    private StringBuilder parseConfigEntry(String entry, int line, StringBuilder currentComment) {
-        if (entry.startsWith("#")) {
-            currentComment.append(entry).append("\n");
-        } else if (!entry.isEmpty()) {
-            String[] parts = entry.split("=", 2);
-            if (parts.length == 2) {
-                config.put(parts[0], new ConfigEntry(parts[1].split(" #")[0], currentComment.toString()));
-                currentComment.setLength(0);  // clear the currentComment
-            } else {
-                throw new RuntimeException("Syntax error in config file on line " + line + "!");
-            }
-        } else {
-            currentComment.append("\n");
-        }
-        return currentComment;
-    }
+    private final Consumer<String> diagnostic;
+    private ConfigSpec spec;
+    private Utf8Config storage;
+    private boolean broken;
 
     private SimpleConfig(ConfigRequest request) {
-        this.request = request;
-        String identifier = "Config '" + request.filename + "'";
+        diagnostic = request.diagnostic;
+        try {
+            String defaults = request.provider.get(request.path.getFileName().toString());
+            ConfigSpec declared = request.provider.spec();
+            spec = declared == null ? parseDefaults(defaults) : declared;
+            storage = Utf8Config.open(request.path, spec, defaults, diagnostic);
+        } catch (IOException | RuntimeException failure) {
+            broken = true;
+            diagnostic.accept("Config could not be loaded; using defaults (" + failure.getClass().getSimpleName() + ")");
+        }
+    }
 
-        if (!request.file.exists()) {
-            LOGGER.info(identifier + " is missing, generating default one...");
-
-            try {
-                createConfig();
-            } catch (IOException e) {
-                LOGGER.error(identifier + " failed to generate!");
-                LOGGER.trace(e);
-                broken = true;
+    // Custom legacy DefaultConfig lambdas also get automatic missing-key tracking.
+    private static ConfigSpec parseDefaults(String text) {
+        ConfigSpec spec = new ConfigSpec();
+        StringBuilder comment = new StringBuilder();
+        for (String line : text.split("\\R")) {
+            if (line.strip().startsWith("#")) comment.append(line.strip().substring(1).stripLeading()).append('\n');
+            else if (!line.isBlank()) {
+                int equals = line.indexOf('=');
+                if (equals < 1) throw new IllegalArgumentException("Invalid default config line");
+                String raw = line.substring(equals + 1);
+                int inline = raw.indexOf(" #");
+                spec.string(line.substring(0, equals).strip(), inline < 0 ? raw : raw.substring(0, inline), comment.toString());
+                comment.setLength(0);
             }
         }
-
-        if (!broken) {
-            try {
-                loadConfig();
-            } catch (Exception e) {
-                LOGGER.error(identifier + " failed to load!");
-                LOGGER.trace(e);
-                broken = true;
-            }
-        }
+        return spec;
     }
 
-    public String get(String key) {
-        ConfigEntry entry = config.get(key);
-        return entry != null ? entry.value : null;
+    public boolean isBroken() { return broken; }
+    public String get(String key) { return storage == null ? null : storage.raw(key); }
+    public String getOrDefault(String key, String fallback) {
+        String value = get(key);
+        return value == null ? fallback : value;
     }
 
-    public String getOrDefault(String key, String def) {
-        String val = get(key);
-        return val == null ? def : val;
-    }
-
-    public int getOrDefault(String key, int def) {
+    private <T> T parsed(String name, T fallback, Function<String,T> decoder, Predicate<T> valid) {
+        String raw = get(name);
+        if (raw == null) return fallback;
         try {
-            return Integer.parseInt(get(key));
-        } catch (Exception e) {
-            return def;
+            // Respect bounds declared in the provider even through the legacy API.
+            for (var key : spec.keys()) if (key.name().equals(name)) key.parse(raw);
+            T value = decoder.apply(raw.strip());
+            if (valid.test(value)) return value;
+        } catch (IllegalArgumentException invalid) {
+            // A malformed boolean is invalid, rather than implicitly false.
         }
+        diagnostic.accept("Invalid config key " + name + "; using its supplied default");
+        return fallback;
     }
 
-    public boolean getOrDefault(String key, boolean def) {
-        String val = get(key);
-        if (val != null) {
-            return val.equalsIgnoreCase("true");
-        }
-        return def;
+    public boolean getOrDefault(String key, boolean fallback) {
+        return parsed(key, fallback, text -> {
+            if (!text.equalsIgnoreCase("true") && !text.equalsIgnoreCase("false"))
+                throw new IllegalArgumentException("Expected boolean");
+            return Boolean.parseBoolean(text);
+        }, value -> true);
+    }
+    public int getOrDefault(String key, int fallback) {
+        return getOrDefault(key, fallback, Integer.MIN_VALUE, Integer.MAX_VALUE);
+    }
+    public int getOrDefault(String key, int fallback, int min, int max) {
+        if (min > max || fallback < min || fallback > max) throw new IllegalArgumentException("Invalid integer default/range");
+        return parsed(key, fallback, Integer::parseInt, value -> value >= min && value <= max);
+    }
+    public double getOrDefault(String key, double fallback) {
+        return getOrDefault(key, fallback, -Double.MAX_VALUE, Double.MAX_VALUE);
+    }
+    public double getOrDefault(String key, double fallback, double min, double max) {
+        if (!Double.isFinite(min) || !Double.isFinite(max) || min > max || !Double.isFinite(fallback)
+                || fallback < min || fallback > max) throw new IllegalArgumentException("Invalid decimal default/range");
+        return parsed(key, fallback, Double::parseDouble, value -> Double.isFinite(value) && value >= min && value <= max);
     }
 
-    public double getOrDefault(String key, double def) {
-        try {
-            return Double.parseDouble(get(key));
-        } catch (Exception e) {
-            return def;
-        }
+    public <T> T get(ConfigSpec.Key<T> key) { return storage == null ? key.defaultValue() : storage.get(key); }
+    public <T> void set(ConfigSpec.Key<T> key, T value) {
+        requireLoaded();
+        storage.set(key, value);
     }
-
-    public boolean isBroken() {
-        return broken;
-    }
-
-    public boolean delete() {
-        LOGGER.warn("Config '" + request.filename + "' was removed from existence! Restart the game to regenerate it.");
-        return request.file.delete();
-    }
-
     public void set(String key, String value) {
-        ConfigEntry entry = config.get(key);
-        if (entry != null) {
-            entry.value = value;
-        } else {
-            config.put(key, new ConfigEntry(value, ""));
-        }
+        requireLoaded();
+        for (var declaration : spec.keys()) if (declaration.name().equals(key)) declaration.parse(value);
+        storage.raw(key, value);
     }
-
-    public void set(String key, int value) {
-        ConfigEntry entry = config.get(key);
-        if (entry != null) {
-            entry.value = Integer.toString(value);
-        } else {
-            config.put(key, new ConfigEntry(Integer.toString(value), ""));
-        }
-    }
-
-    public void set(String key, boolean value) {
-        ConfigEntry entry = config.get(key);
-        if (entry != null) {
-            entry.value = Boolean.toString(value);
-        } else {
-            config.put(key, new ConfigEntry(Boolean.toString(value), ""));
-        }
-    }
-
+    public void set(String key, boolean value) { set(key, Boolean.toString(value)); }
+    public void set(String key, int value) { set(key, Integer.toString(value)); }
     public void set(String key, double value) {
-        ConfigEntry entry = config.get(key);
-        if (entry != null) {
-            entry.value = Double.toString(value);
-        } else {
-            config.put(key, new ConfigEntry(Double.toString(value), ""));
-        }
+        if (!Double.isFinite(value)) throw new IllegalArgumentException("Expected finite value");
+        set(key, Double.toString(value));
     }
+    /** Adds a comment while preserving user comments already in the file. */
+    public void setComment(String key, String comment) { requireLoaded(); storage.comment(key, comment); }
 
-
-
+    private void requireLoaded() {
+        if (broken || storage == null) throw new IllegalStateException("Reload the broken config before editing");
+    }
+    /** Use this form when a screen must report save failure to the user. */
+    public void saveChecked() throws IOException {
+        if (broken || storage == null) throw new IOException("Refusing to replace an unreadable config");
+        storage.save();
+    }
     public void save() {
-        try {
-            boolean needsRecreation = false;
-
-            // List of all necessary config keys
-
-            String[] necessaryConfigs = ModConfigs.necessaryConfigs;
-
-            // Check if all necessary configs are present
-            for (String key : necessaryConfigs) {
-                if (!config.containsKey(key)) {
-                    needsRecreation = true;
-                    break;
-                }
-            }
-
-            if (needsRecreation) {
-                createConfig();
-                loadConfig();
-            } else {
-                PrintWriter writer = new PrintWriter(request.file, "UTF-8");
-                for (Map.Entry<String, ConfigEntry> entry : config.entrySet()) {
-                    if (entry.getValue() != null && !entry.getValue().comment.isEmpty()) {
-                        writer.println(entry.getValue().comment.trim());
-                    }
-                    if (entry.getValue() != null) {
-                        writer.println(entry.getKey() + "=" + entry.getValue().value);
-                        writer.println();  // Ensure there's a blank line between entries
-                    }
-                }
-                writer.close();
-            }
-        } catch (IOException e) {
-            LOGGER.error("Failed to save config!");
-            LOGGER.trace(e);
-        }
+        try { saveChecked(); }
+        catch (IOException failure) { broken = true; diagnostic.accept("Config save refused; reload before retrying"); }
     }
-
-
-    public void setComment(String key, String comment) {
-        ConfigEntry entry = config.get(key);
-        if (entry != null) {
-            entry.comment = comment;
-        } else {
-            config.put(key, new ConfigEntry("", comment));
+    /** Source compatibility for Combo-style callers. Provider declarations own defaults. */
+    public void save(String[] requiredKeys) { save(List.of(requiredKeys)); }
+    public void save(List<String> requiredKeys) {
+        for (String key : requiredKeys) {
+            if (get(key) == null && (spec == null || spec.keys().stream().noneMatch(value -> value.name().equals(key)))) {
+                diagnostic.accept("Required key has no declared default: " + key);
+                return;
+            }
         }
+        save();
     }
-
-    private static class ConfigEntry {
-        String value;
-        String comment;
-
-        ConfigEntry(String value, String comment) {
-            this.value = value;
-            this.comment = comment;
-        }
+    public boolean delete() {
+        if (broken || storage == null) return false;
+        try { boolean deleted = storage.delete(); broken = deleted; return deleted; }
+        catch (IOException failure) { diagnostic.accept("Config deletion refused"); return false; }
     }
 }

@@ -1,6 +1,8 @@
 package net.vg.structurevoidable.config;
 
 import com.mojang.datafixers.util.Pair;
+import dev.architectury.platform.Platform;
+import java.io.IOException;
 import net.vg.structurevoidable.Constants;
 
 import java.util.Arrays;
@@ -11,10 +13,8 @@ public class ModConfigs {
     public static boolean BARRIER_BEHAVIOR;
     public static boolean OUTLINE_VISIBLE;
 
-    public static boolean FULL_BLOCK_OUTLINE; // Getting replaced
+    public static boolean FULL_BLOCK_OUTLINE; // Retained for compatibility with old config files
     public static String OUTLINE_SIZE;
-
-
 
     public static boolean FULL_BLOCK_RENDER;
     public static String OUTLINE_COLOR;
@@ -22,31 +22,21 @@ public class ModConfigs {
     public static boolean DISPLAY_BLOCK;
     public static String BLOCK_TYPE;
 
-    public static String[] necessaryConfigs = {
-        "config.barrier.behavior", // If the structure void should have the same behavior as the barrier for rendering
-        "config.outline.always.visible", // If the outline version of the structure void should always be visible
-        "config.full.block.outline", // If the breakable and placeable outline should be a full block
-        "config.outline.size", // The size of the breakable and placeable outline.
-
-
-        "config.full.block.render", // If the visible outline render should be a full block
-        "config.outline.color", // The color of the outline render
-
-        "config.display.block", // If the structure void should display as a block
-        "config.block.type", // The block it should display as
-    };
-
     public static void registerConfigs() {
         Constants.LOGGER.info("Registering mod configurations.");
-        configs = new ModConfigProvider();
-        createConfigs();
+        // Vanilla can query the mixed-in block's shape before the loader is
+        // ready. Keep class loading inert; construct the schema during mod init.
+        configs = createProvider();
 
-        CONFIG = SimpleConfig.of(Constants.MOD_ID + "config").provider(configs).request();
+        CONFIG = SimpleConfig.of(SimpleConfig.versionedPath(Platform.getConfigFolder(),
+                Constants.MOD_ID + "config", Constants.MOD_VERSION)).provider(configs)
+                .diagnostic(Constants.LOGGER::warn).request();
 
         assignConfigs();
     }
 
-    private static void createConfigs() {
+    static ModConfigProvider createProvider() {
+        ModConfigProvider configs = new ModConfigProvider(Constants.MOD_NAME + " Settings");
         Constants.LOGGER.debug("Creating default configuration values.");
         configs.addKeyValuePair(new Pair<>("config.barrier.behavior", true), Arrays.asList(
                 "If the structure void should have the same behavior as the barrier for rendering",
@@ -68,10 +58,6 @@ public class ModConfigs {
                 "Default: small"
         ));
 
-
-
-
-
         configs.addKeyValuePair(new Pair<>("config.full.block.render", false), Arrays.asList(
                 "If the visible outline render should be a full block",
                 "Default: False"
@@ -82,23 +68,25 @@ public class ModConfigs {
                 "Default: default"
         ));
 
-        configs.addKeyValuePair(new Pair<>("config.display.block", "stone"), Arrays.asList(
+        configs.addKeyValuePair(new Pair<>("config.display.block", false), Arrays.asList(
                 "If the structure void block should display as a Minecraft block",
+                "Default: False"
+        ));
+        configs.addKeyValuePair(new Pair<>("config.block.type", "stone"), Arrays.asList(
+                "The block to display when Display as Block is enabled",
                 "Options include: stone, deepslate, dirt, netherrack, and endstone",
                 "Default: stone"
         ));
-
+        return configs;
     }
 
-    private static void assignConfigs() {
+    static void assignConfigs() {
         Constants.LOGGER.info("Assigning configuration values.");
         // Assign configuration values to fields
         BARRIER_BEHAVIOR = CONFIG.getOrDefault("config.barrier.behavior", true);
         OUTLINE_VISIBLE = CONFIG.getOrDefault("config.outline.always.visible", false);
         FULL_BLOCK_OUTLINE = CONFIG.getOrDefault("config.full.block.outline", true); // Old
         OUTLINE_SIZE = CONFIG.getOrDefault("config.outline.size", "small");
-
-
 
         FULL_BLOCK_RENDER = CONFIG.getOrDefault("config.full.block.render", false);
         OUTLINE_COLOR = CONFIG.getOrDefault("config.outline.color", "default");
@@ -110,22 +98,10 @@ public class ModConfigs {
     }
 
     public static void saveConfigs() {
-        Constants.LOGGER.info("Saving current configuration values.");
-        CONFIG.set("config.barrier.behavior", BARRIER_BEHAVIOR);
-        CONFIG.set("config.outline.always.visible", OUTLINE_VISIBLE);
-        CONFIG.set("config.full.block.outline", FULL_BLOCK_OUTLINE); // Old
-        CONFIG.set("config.outline.size", OUTLINE_SIZE);
-
-
-
-
-        CONFIG.set("config.full.block.render", FULL_BLOCK_RENDER);
-        CONFIG.set("config.outline.color", OUTLINE_COLOR);
-
-        CONFIG.set("config.display.block", DISPLAY_BLOCK);
-        CONFIG.set("config.block.type", BLOCK_TYPE);
-
-        CONFIG.save();
-        Constants.LOGGER.info("Configuration values saved successfully.");
+        try {
+            new SettingsDraft().save();
+        } catch (IOException | IllegalStateException failure) {
+            Constants.LOGGER.error("Could not save StructureVoidable settings", failure);
+        }
     }
 }

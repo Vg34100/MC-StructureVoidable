@@ -115,7 +115,7 @@ tasks.named('curseforge') {
     release.changelog = manifest.changelog
     release.changelogType = 'markdown'
     release.addGameVersion(row.minecraft)
-    release.addModLoader(row.loader == 'fabric' ? 'Fabric' : 'NeoForge')
+    release.addModLoader([fabric: 'Fabric', forge: 'Forge', neoforge: 'NeoForge'][row.loader])
     release.addJavaVersion("Java ${row.java}".toString())
     release.addEnvironment(*row.environments)
     row.dependencies.each { dependency ->

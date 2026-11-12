@@ -11,6 +11,11 @@ import java.util.Arrays;
 import java.util.List;
 
 public class ModKeyMaps {
+    //? if >=26.3 {
+    /*private static final InputConstants.Type KEY_TYPE = InputConstants.Type.KEYBOARD;
+    *///? } else {
+    private static final InputConstants.Type KEY_TYPE = InputConstants.Type.KEYSYM;
+    //? }
     //? if >=26.1 {
     private static final KeyMapping.Category CATEGORY = KeyMapping.Category.MISC;
     //? } else {
@@ -19,21 +24,21 @@ public class ModKeyMaps {
 
     public static final KeyMapping CUSTOM_KEYMAPPING = new KeyMapping(
             "key.toggle_outline_visible",
-            InputConstants.Type.KEYSYM,
+            KEY_TYPE,
             InputConstants.KEY_INSERT,
             CATEGORY
     );
 
     public static final KeyMapping CYCLE_OUTLINE_SIZE_KEYMAPPING = new KeyMapping(
             "key.cycle_outline_size",
-            InputConstants.Type.KEYSYM,
+            KEY_TYPE,
             InputConstants.KEY_I,
             CATEGORY
     );
 
     public static final KeyMapping CYCLE_BLOCK_TYPE_KEYMAPPING = new KeyMapping(
             "key.cycle_block_type",
-            InputConstants.Type.KEYSYM,
+            KEY_TYPE,
             InputConstants.KEY_O,
             CATEGORY
     );

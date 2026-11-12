@@ -14,6 +14,22 @@ PUBLISH = runpy.run_path(str(ROOT / "scripts/publish-release.py"))
 
 
 class PublishingSafety(unittest.TestCase):
+    def test_jdk_discovery_prefers_final_runtime_over_same_major_preview(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            preview, stable = root / 'a-loom-ea', root / 'z-final'
+            for home, version in ((preview, '25-loom'), (stable, '25.0.3')):
+                home.mkdir()
+                (home / 'release').write_text('JAVA_VERSION="25"\nJAVA_RUNTIME_VERSION="' + version + '"\n')
+            project = WRAPPER['Project'](ROOT)
+            replacements = dict(configured_java_home=lambda *args: (None, None),
+                                candidate_jdks=lambda *args: [(25, preview), (25, stable)])
+            with patch.dict(WRAPPER['select_gradle_java'].__globals__, replacements), \
+                    patch.dict(os.environ, {}, clear=True), patch('shutil.which', return_value=None):
+                chosen, message, fatal = WRAPPER['select_gradle_java'](project, [])
+            self.assertEqual(chosen, str(stable))
+            self.assertFalse(fatal)
+
     def test_dotenv_is_child_only_and_environment_wins(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -45,7 +61,7 @@ class PublishingSafety(unittest.TestCase):
         self.assertEqual({r["target"] for r in data["entries"]}, {p.stem for p in (ROOT / 'gradle/matrix').glob('*.properties')})
         self.assertEqual(len({r['version_number'] for r in data['entries']}), len(data['entries']))
         for row in data['entries']:
-            loader = {'fabric': 'Fabric', 'neoforge': 'NeoForge'}[row['loader']]
+            loader = {'fabric': 'Fabric', 'forge': 'Forge', 'neoforge': 'NeoForge'}[row['loader']]
             self.assertEqual(row['version_name'], f"[{loader}] Structure Voidable {data['mod_version']} ({row['minecraft']})")
             mods = {d['mod_id'] for d in row['dependencies']}
             self.assertEqual(mods, {'architectury', 'fabric-api', 'modmenu'} if row['loader'] == 'fabric' else {'architectury'})
@@ -102,7 +118,7 @@ class PublishingSafety(unittest.TestCase):
                         name='Structure Voidable ' + data['mod_version'], game_versions=['26.2'], loaders=['fabric'])
         with self.assertRaisesRegex(ValueError, 'Existing Modrinth'):
             PUBLISH['check_duplicates'](data, [existing])
-        for change in ({'name': 'Structure Voidable ' + data['mod_version'] + '0'}, {'loaders': ['quilt']}, {'game_versions': ['1.20.1']}):
+        for change in ({'name': 'Structure Voidable ' + data['mod_version'] + '0'}, {'loaders': ['quilt']}, {'game_versions': ['1.19.4']}):
             PUBLISH['check_duplicates'](data, [dict(existing, **change)])
         file = dict(id=1, name='structurevoidable-' + data['mod_version'] + '-v26.2-fabric.jar', versions=['26.2', 'Fabric'])
         with self.assertRaisesRegex(ValueError, 'Existing CurseForge'):
@@ -119,12 +135,70 @@ class PublishingSafety(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     PUBLISH['check_modrinth_project'](data)
 
+    def test_forge_metadata_uses_mandatory_boolean_and_java_17(self):
+        data = PUBLISH['publication_plan']()
+        row = next(row for row in data['entries'] if row['target'] == '1.20.1-forge')
+        self.assertEqual(row['java'], 17)
+        self.assertEqual(row['curseforge_versions'], ['1.20.1', 'Forge', 'Java 17', 'Client', 'Server'])
+        self.assertEqual([(dep['mod_id'], dep['dependency_type']) for dep in row['dependencies']],
+                         [('architectury', 'required')])
+        config = PUBLISH['properties'](ROOT / 'gradle/publishing.properties')
+        malformed = '[[dependencies.structurevoidable]]\nmodId="architectury"\n'
+        with self.assertRaisesRegex(ValueError, 'Forge mandatory'):
+            PUBLISH['dependencies'](malformed, 'forge', {}, config)
+        optional = PUBLISH['dependencies'](malformed + 'mandatory=false\n', 'forge', {}, config)
+        self.assertEqual(optional[0]['dependency_type'], 'optional')
+
+    def test_forge_duplicates_do_not_confuse_neoforge(self):
+        data = PUBLISH['publication_plan']()
+        row = next(row for row in data['entries'] if row['target'] == '1.20.1-forge')
+        data = dict(data, entries=[row])
+        version = dict(id='fixture', version_number='old-name', name='Structure Voidable ' + data['mod_version'],
+                       game_versions=['1.20.1'], loaders=['forge'])
+        with self.assertRaisesRegex(ValueError, 'Existing Modrinth'):
+            PUBLISH['check_duplicates'](data, [version])
+        PUBLISH['check_duplicates'](data, [dict(version, loaders=['neoforge'])])
+        file = dict(id=1, display=row['version_name'], versions=['1.20.1', 'Forge'])
+        with self.assertRaisesRegex(ValueError, 'Existing CurseForge'):
+            PUBLISH['check_curseforge_duplicates'](data, dict(id=1072628, files=[file]))
+        file = dict(id=1, display='Structure Voidable ' + data['mod_version'], versions=['1.20.1', 'NeoForge'])
+        PUBLISH['check_curseforge_duplicates'](data, dict(id=1072628, files=[file]))
+
+    def test_release_smoke_selection_is_matrix_owned(self):
+        project = WRAPPER['Project'](ROOT)
+        kind, selected = WRAPPER['plan'](project, 'release-smoke')
+        self.assertEqual(kind, 'release-clients')
+        self.assertEqual({target.name for target in selected},
+                         {target.name for target in project.targets if target.props.get('release_smoke') == 'true'})
+        kind, selected = WRAPPER['plan'](project, 'smoke-release-client:1.20.1-forge')
+        self.assertEqual(kind, 'release-client')
+        self.assertEqual(selected[0].loader, 'forge')
+        for target in project.targets:
+            target.props['release_smoke'] = 'false'
+        with self.assertRaisesRegex(WRAPPER['PlanError'], 'No representative'):
+            WRAPPER['plan'](project, 'release-smoke')
+
     def test_unmapped_metadata_and_wrong_mod_namespace_fail(self):
         config = PUBLISH['properties'](ROOT / 'gradle/publishing.properties')
         with self.assertRaisesRegex(ValueError, 'Unmapped'):
             PUBLISH['dependencies']('{"depends":{"unexpected-mod":"*"}}', 'fabric', {}, config)
-        with self.assertRaisesRegex(ValueError, 'Missing NeoForge dependency'):
+        with self.assertRaisesRegex(ValueError, 'Missing loader dependency'):
             PUBLISH['dependencies']('[[dependencies.unrelated]]\nmodId="architectury"\ntype="required"\n', 'neoforge', {}, config)
+
+    def test_side_check_rejects_eager_client_descriptors(self):
+        import io, struct
+        from zipfile import ZipFile
+        check = runpy.run_path(str(ROOT / 'scripts/check-side-safety.py'))['check_jar']
+        for forbidden in ('Lnet/minecraft/client/gui/screens/Screen;',
+                          'Lnet/vg/structurevoidable/client/gui/screen/option/MainOptionScreen;',
+                          'net/vg/structurevoidable/StructureVoidableClient'):
+            value = forbidden.encode()
+            bytecode = b'\xca\xfe\xba\xbe' + struct.pack('>HHHBH', 0, 61, 2, 1, len(value)) + value
+            stream = io.BytesIO()
+            with ZipFile(stream, 'w') as jar:
+                jar.writestr('net/vg/structurevoidable/neoforge/StructurevoidableNeoForge.class', bytecode)
+            with ZipFile(stream) as jar, self.assertRaisesRegex(ValueError, 'Client'):
+                check(jar, 'net/vg/structurevoidable/')
 
     def test_cli_overrides_cannot_bypass_confirmation_or_debug_mode(self):
         project = WRAPPER['Project'](ROOT)
